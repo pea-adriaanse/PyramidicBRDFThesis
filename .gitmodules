@@ -1,0 +1,3 @@
+[submodule "iridescence"]
+	path = iridescence
+	url = https://github.com/HuskyNator/iridescence
