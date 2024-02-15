@@ -1,0 +1,15 @@
+{
+	"authors": [
+		"Paul"
+	],
+	"copyright": "Copyright © 2024, Paul",
+	"dependencies": {
+		"bindbc-glfw": "~>1.1.0",
+		"bindbc-opengl": "~>1.1.0"
+	},
+	"description": "pyramids generation",
+	"license": "proprietary",
+	"name": "pyramids",
+	"versions": ["GL_46", "GLFW_33"],
+	"targetName": "pyramids"
+}

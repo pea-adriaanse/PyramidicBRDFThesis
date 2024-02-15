@@ -1,0 +1,16 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/pyramids
+pyramids.so
+pyramids.dylib
+pyramids.dll
+pyramids.a
+pyramids.lib
+pyramids-test-*
+*.exe
+*.pdb
+*.o
+*.obj
+*.lst
