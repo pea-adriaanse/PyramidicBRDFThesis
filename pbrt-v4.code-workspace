@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"todo-tree.general.tags": [
+			"TODO",
+			"TEMP",
+			"WARNING",
+			"IRI",
+			"Iri",
+			"iri"
+		]
+	}
+}
