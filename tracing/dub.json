@@ -1,0 +1,14 @@
+{
+	"authors": [
+		"Paul A."
+	],
+	"copyright": "Copyright © 2024, Paul A.",
+	"description": "Tracing Tests",
+	"license": "proprietary",
+	"name": "tracing",
+	"dependencies": {
+		"vertexd:math": {
+			"path": "E:/Code/D/VertexD"
+		}
+	}
+}

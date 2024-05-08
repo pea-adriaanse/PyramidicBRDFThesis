@@ -1,0 +1,16 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/tracing
+tracing.so
+tracing.dylib
+tracing.dll
+tracing.a
+tracing.lib
+tracing-test-*
+*.exe
+*.pdb
+*.o
+*.obj
+*.lst
