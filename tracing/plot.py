@@ -10,7 +10,7 @@ with open("settings.csv", "r") as file:
 		settings[line[0]] = line[1]
 
 sphereSampleCount = int(settings["sphereSampleCount"])
-peakSampleCount = int(settings["peakSampleCount"])
+sampleCount = int(settings["sampleCount"])
 sphereSampler = settings["sphereSampler"]
 
 # Utility
@@ -53,17 +53,17 @@ def readDataPoint(fileName):
 			data.append(Point(*lineNum))
 	return data
 
+# Get Data
 sphereSamples = readDataPoint("sphereSamples.csv")
-# print(sphereSamples)
-
 hits = readData("hits.csv")
-hits2 = [int(x)/peakSampleCount for x in hits["hits"]]
+hits2 = [int(x)/sampleCount for x in hits["hits"]]
 orgs = [sphereSamples[int(i)] for i in hits["org_id"]]
 
 hitsConst = readData("hitsConstant.csv")
-hits2Const = [int(x)/peakSampleCount for x in hitsConst["hits"]]
+hits2Const = [int(x)/sampleCount for x in hitsConst["hits"]]
 #orgsConst = [sphereSamples[i] for i in hitsConst["org_id"]] Should be the same
 
+# Plotting
 if(sphereSampler == "simple" or sphereSampler == "simple_quad"):
 	orghits_by_phi = {}
 	for i,org in enumerate(orgs):
@@ -73,7 +73,6 @@ if(sphereSampler == "simple" or sphereSampler == "simple_quad"):
 		orghits_by_phi[org.phi][1].append(hits2[i])
 		orghits_by_phi[org.phi][2].append(hits2Const[i])
 
-
 	for phi,orghits in orghits_by_phi.items():
 		plt.plot(orghits[0], orghits[1], "-")
 		plt.plot(orghits[0], orghits[2], "--")
@@ -82,12 +81,21 @@ if(sphereSampler == "simple" or sphereSampler == "simple_quad"):
 
 else:
 	lats = [x.lat for x in orgs]
-	latsConst = [x.lat for x in orgsConst]
+	# latsConst = [x.lat for x in orgsConst]
 	plt.plot(lats, hits2, label="variable heights")
-	plt.plot(latsConst, hits2Const, label="constant heights")
+	plt.plot(lats, hits2Const, label="constant heights")
 
+plt.axvline((90-54.7) * math.pi / 180)
 plt.xscale("linear")
 plt.title("Shadowing Function")
 plt.xlabel("latitude")
 plt.ylabel("visibility")
+plt.show()
+
+fig = plt.figure()
+ax = plt.axes(projection="3d")
+ax.scatter([x.x for x in orgs], [x.y for x in orgs], [x.z for x in orgs])
+ax.set_xlabel("x")
+ax.set_ylabel("y")
+ax.set_zlabel("z")
 plt.show()

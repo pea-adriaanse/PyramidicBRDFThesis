@@ -130,12 +130,19 @@ enum _slope = 54.7;
 enum _width = 20.0; //?
 float width = 100; // used
 enum _density = 0.6; //?
-uint sphereSampleCount = 40 * 40; // Should be square
-uint peakSampleCount = 500;
+
+uint simpleSphereLatCount = 100;
+uint simpleSphereLongCount = 10;
+uint fibonacciSphereCount = 400;
+
+uint sphereSampleCount; // determined given sampler used ^
+
+uint sampleCount = 500;
+float maxHeight = 7.0;
 
 void main() {
 	string heightsFile = "heightCumulative.csv"; // Source: "Opto-electrical modelling and optimization study of a novel IBC c-Si solar cellOpto-electrical modelling and optimization study of a novel IBC c-Si solar cell"
-	Distribution heightDistribution = new HistogramDistribution(heightsFile, 7.0);
+	Distribution heightDistribution = new HistogramDistribution(heightsFile, maxHeight);
 	Distribution heightDistributionConstant = new ConstantDistribution(1);
 	Landscape land = createLandscape(width, _density, heightDistribution); // 20 micron, 0.6 per micron²
 	Landscape landConstant = createLandscape(width, _density, heightDistributionConstant); // 20 micron, 0.6 per micron²
@@ -146,30 +153,14 @@ void main() {
 	// 	landFile.writeln(peak.x.toStr, ",", peak.y.toStr, ",", peak.z.toStr);
 
 	// SphereSampler sphereSampler = new SphereFibonacci(sphereSampleCount);
-	uint root = cast(uint) sqrt(cast(float) sphereSampleCount);
-	enforce(root * root == sphereSampleCount, "Incorrect sphereSampleCount");
-	SphereSampler sphereSampler = new SphereSimple(root, root, true);
+	SphereSampler sphereSampler = new SphereSimple(simpleSphereLongCount, simpleSphereLatCount, true);
+	sphereSampleCount = cast(uint) sphereSampler.data.length;
 	sphereSampler.save("sphereSamples.csv");
-
-	assert(peakSampleCount >= land.length);
-	assert(peakSampleCount >= landConstant.length);
-
-	// File results = File("results.csv", "w");
-	// results.writeln("sep=,");
-	// results.writeln("org_id,org_x,org_y,org_z,choice_id,peak_id,hit_x,hit_y,hit_z,peakSampleCount:,",
-	// 	peakSampleCount.to!string, ",", "sphereSampleCount:", ",", sphereSampleCount.to!string);
-
-	// foreach (i; 0 .. N * N) {
-	// Vec!3 org = Vec!3((_width / N) * (i % N) - _width / 2, (_width / N) * (floor((cast(float) i) / N)) - _width / 2,
-	// 	8.0);
-	// Ray ray = Ray(org, Vec!3(0, 0, -1));
-	// if (!hit.hit)
-	// 	hit.pos = Vec!3(0, 0, 1); // debugging
 
 	File settingsFile = File("settings.csv", "w");
 	settingsFile.writeln("sphereSampler,", sphereSampler.name);
 	settingsFile.writeln("sphereSampleCount,", sphereSampleCount.to!string);
-	settingsFile.writeln("peakSampleCount,", peakSampleCount.to!string);
+	settingsFile.writeln("sampleCount,", sampleCount.to!string);
 
 	Vec!3[] sphereSamples;
 	sphereSamples.reserve(sphereSampleCount);
@@ -182,26 +173,38 @@ void main() {
 
 void measure(Landscape land, Vec!3[] sphereSamples, string outFile) {
 	ulong[] hits = new ulong[sphereSampleCount];
-	ulong[] peakSamples;
-	peakSamples.reserve(peakSampleCount);
-	while (peakSamples.length < peakSampleCount) {
-		ulong sample = cast(ulong) uniform(0, land.length);
-		if (!peakSamples.canFind(sample))
-			peakSamples ~= sample;
+	Vec!3[] samplePoss;
+	ulong[] samplePeakIDs;
+
+	samplePoss.reserve(sampleCount);
+	samplePeakIDs.reserve(sampleCount);
+	foreach (i; 0 .. sampleCount) {
+		bool east = false;
+		Vec!3 pos;
+		Hit hit;
+		while (!east) { // Filter for east faces
+			pos = Vec!3(uniform(0, width / 2), uniform(0, width / 2), maxHeight + 1);
+			Ray ray = Ray(pos, Vec!3(0, 0, -1));
+			hit = trace(land, ray);
+			assert(hit.hit);
+			assert(hit.pos.almostEq(pos));
+			east = hit.face == 0;
+		}
+		samplePoss ~= pos;
+		samplePeakIDs ~= hit.peakID;
 	}
 
-	foreach (j, p; peakSamples) {
-		write("[", j.to!string, "/", peakSampleCount.to!string, "]\t\t\r");
+	foreach (sampleIDs, samplePos; samplePoss) {
+		write("[", sampleIDs.to!string, "/", sampleCount.to!string, "]\t\t\r");
 		stdout.flush();
-		Vec!3 peakSample = land[p];
-		foreach (i, sphereSample; sphereSamples) {
-			Vec!3 org = Vec!3(peakSample.x, peakSample.y, 0) + sphereSample;
+		foreach (sphereID, sphereSample; sphereSamples) {
+			Vec!3 org = samplePos + sphereSample; // Assuming East Face
 			// Vec!3 target = Vec!3(peakSample.x, peakSample.y, 0); // TODO sample across one face!!
 			Ray ray = Ray(org, -sphereSample);
 
 			Hit hit = trace(land, ray);
-			if (hit.peakID == p)
-				hits[i] += 1;
+			if (hit.peakID == samplePeakIDs[sampleIDs])
+				hits[sphereID] += 1;
 		}
 	}
 
@@ -251,6 +254,7 @@ struct Hit {
 	Vec!3 pos;
 	float t = float.infinity;
 	ulong peakID;
+	ubyte face;
 }
 
 Hit trace(Landscape land, Ray ray) {
@@ -266,8 +270,9 @@ Hit trace(Landscape land, Ray ray) {
 }
 
 Hit trace(Vec!3 peak, Ray ray) {
-	foreach (Face f; shape.faces) {
+	foreach (ubyte i, Face f; shape.faces) {
 		Hit hit = trace(peak, f, ray);
+		hit.face = i;
 		if (hit.hit)
 			return hit;
 	}

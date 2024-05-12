@@ -52,16 +52,21 @@ class SphereSimple : SphereSampler {
 	bool quadrant;
 
 	this(uint Nphi, uint Nlat, bool quadrant) {
+		assert(Nphi > 0 && Nlat > 0);
 		this.quadrant = quadrant;
 		data.reserve(Nphi * Nlat);
 		angles.reserve(Nphi * Nlat);
 
 		foreach (i; 0 .. Nphi) {
-			float longitude = i * 2.0 * PI / Nphi;
+			float longitude = i * 2.0 * PI / (Nphi - 1);
+			if (Nphi == 1)
+				longitude = 0;
 			if (quadrant)
 				longitude /= 4;
 			foreach (j; 0 .. Nlat) {
-				float lat = j * PI / (2.0 * Nlat);
+				float lat = j * PI / (2.0 * (Nlat - 1));
+				if (Nlat == 1)
+					lat = PI / 2.0;
 				data ~= angularToXYZ(longitude, lat);
 				angles ~= Vec!2(longitude, lat);
 			}
