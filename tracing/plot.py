@@ -11,6 +11,7 @@ with open("settings.csv", "r") as file:
 
 sphereSampleCount = int(settings["sphereSampleCount"])
 peakSampleCount = int(settings["peakSampleCount"])
+sphereSampler = settings["sphereSampler"]
 
 # Utility
 def readData(fileName):
@@ -32,20 +33,61 @@ def readData(fileName):
 				data[header[i]].append(l)
 	return data
 
-def get_org(org_id, sphereSampleCount):
-	from collections import namedtuple
-	Point = namedtuple('Point', 'x y z phi lat')
-	longitude = org_id * math.pi/(1+math.sqrt(5.0))
-	latitude = math.asin(org_id* 2/(2*sphereSampleCount+1))
-	x = math.cos(longitude) * math.cos(latitude)
-	y = math.sin(longitude) * math.cos(latitude)
-	z = math.sin(latitude)
-	return Point(x, y, z, longitude, latitude)
+def readDataPoint(fileName):
+	with open(fileName, "r") as file:
+		first = file.readline().split('=')
+		sep = ','
+		if first[0] == 'sep':
+			sep = first[1]
+		else:
+			file.seek(0)
+
+		header = next(file).strip().split(sep)
+		from collections import namedtuple
+		Point = namedtuple('Point', header)
+
+		data = []
+
+		for line in csv.reader(file, delimiter=sep):
+			lineNum = [float(x) for x in line]
+			data.append(Point(*lineNum))
+	return data
+
+sphereSamples = readDataPoint("sphereSamples.csv")
+# print(sphereSamples)
 
 hits = readData("hits.csv")
 hits2 = [int(x)/peakSampleCount for x in hits["hits"]]
-# print(hits)
+orgs = [sphereSamples[int(i)] for i in hits["org_id"]]
 
-lats = [get_org(int(x), sphereSampleCount).lat for x in hits["org_id"]]
-plt.plot(lats, hits2)
+hitsConst = readData("hitsConstant.csv")
+hits2Const = [int(x)/peakSampleCount for x in hitsConst["hits"]]
+#orgsConst = [sphereSamples[i] for i in hitsConst["org_id"]] Should be the same
+
+if(sphereSampler == "simple" or sphereSampler == "simple_quad"):
+	orghits_by_phi = {}
+	for i,org in enumerate(orgs):
+		if org.phi not in orghits_by_phi:
+			orghits_by_phi[org.phi] = ([],[], [])
+		orghits_by_phi[org.phi][0].append(math.pi/2 - org.lat) # change to altitude
+		orghits_by_phi[org.phi][1].append(hits2[i])
+		orghits_by_phi[org.phi][2].append(hits2Const[i])
+
+
+	for phi,orghits in orghits_by_phi.items():
+		plt.plot(orghits[0], orghits[1], "-")
+		plt.plot(orghits[0], orghits[2], "--")
+
+	plt.legend(["variable height", "constant height"])
+
+else:
+	lats = [x.lat for x in orgs]
+	latsConst = [x.lat for x in orgsConst]
+	plt.plot(lats, hits2, label="variable heights")
+	plt.plot(latsConst, hits2Const, label="constant heights")
+
+plt.xscale("linear")
+plt.title("Shadowing Function")
+plt.xlabel("latitude")
+plt.ylabel("visibility")
 plt.show()

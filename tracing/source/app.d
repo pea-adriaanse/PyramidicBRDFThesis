@@ -4,10 +4,11 @@ import std.random;
 import std.math;
 import math;
 import misc;
-import fibonacci;
+import sphere_samplers;
 import std.algorithm.searching : canFind;
 import std.algorithm.sorting;
 import std.conv : to;
+import std.exception : enforce;
 
 struct Face {
 	Vec!3[2] legs;
@@ -80,13 +81,6 @@ struct PyramidShape {
 
 alias Landscape = Vec!3[];
 
-// version = backfaceCulling;
-enum _slope = 54.7;
-enum _width = 20.0; //?
-enum _density = 0.6; //?
-
-PyramidShape shape = PyramidShape(degreesToRadians(_slope));
-
 string toStr(float f) {
 	return to!string(f);
 }
@@ -131,31 +125,34 @@ class HistogramDistribution : Distribution {
 	}
 }
 
+PyramidShape shape = PyramidShape(degreesToRadians(_slope));
+enum _slope = 54.7;
+enum _width = 20.0; //?
+float width = 100; // used
+enum _density = 0.6; //?
+uint sphereSampleCount = 40 * 40; // Should be square
+uint peakSampleCount = 500;
+
 void main() {
 	string heightsFile = "heightCumulative.csv"; // Source: "Opto-electrical modelling and optimization study of a novel IBC c-Si solar cellOpto-electrical modelling and optimization study of a novel IBC c-Si solar cell"
-	// Distribution heightDistribution = new HistogramDistribution(heightsFile, 7.0);
-	Distribution heightDistribution = new ConstantDistribution(1);
-	float width = 100;
+	Distribution heightDistribution = new HistogramDistribution(heightsFile, 7.0);
+	Distribution heightDistributionConstant = new ConstantDistribution(1);
 	Landscape land = createLandscape(width, _density, heightDistribution); // 20 micron, 0.6 per micron²
+	Landscape landConstant = createLandscape(width, _density, heightDistributionConstant); // 20 micron, 0.6 per micron²
 
 	// File landFile = File("land.csv", "w");
 	// landFile.writeln("sep=,");
-	// foreach (Vec!3 peak; land) {
+	// foreach (Vec!3 peak; land)
 	// 	landFile.writeln(peak.x.toStr, ",", peak.y.toStr, ",", peak.z.toStr);
-	// }
 
-	uint sphereSampleCount = 1000;
-	SpherePoints spherePoints = SpherePoints(sphereSampleCount);
-	uint peakSampleCount = 300;
+	// SphereSampler sphereSampler = new SphereFibonacci(sphereSampleCount);
+	uint root = cast(uint) sqrt(cast(float) sphereSampleCount);
+	enforce(root * root == sphereSampleCount, "Incorrect sphereSampleCount");
+	SphereSampler sphereSampler = new SphereSimple(root, root, true);
+	sphereSampler.save("sphereSamples.csv");
+
 	assert(peakSampleCount >= land.length);
-
-	ulong[] peakSamples;
-	peakSamples.reserve(peakSampleCount);
-	while (peakSamples.length < peakSampleCount) {
-		ulong sample = cast(ulong) uniform(0, land.length);
-		if (!peakSamples.canFind(sample))
-			peakSamples ~= sample;
-	}
+	assert(peakSampleCount >= landConstant.length);
 
 	// File results = File("results.csv", "w");
 	// results.writeln("sep=,");
@@ -169,11 +166,29 @@ void main() {
 	// if (!hit.hit)
 	// 	hit.pos = Vec!3(0, 0, 1); // debugging
 
-	ulong[] hits = new ulong[sphereSampleCount];
-	Vec!3[] sphereSamples = new Vec!3[sphereSampleCount];
+	File settingsFile = File("settings.csv", "w");
+	settingsFile.writeln("sphereSampler,", sphereSampler.name);
+	settingsFile.writeln("sphereSampleCount,", sphereSampleCount.to!string);
+	settingsFile.writeln("peakSampleCount,", peakSampleCount.to!string);
 
+	Vec!3[] sphereSamples;
+	sphereSamples.reserve(sphereSampleCount);
 	foreach (i; 0 .. sphereSampleCount)
-		sphereSamples[i] = spherePoints.getPoint(i) * cast(float) _width;
+		sphereSamples ~= sphereSampler.data[i] * cast(float) _width; // Ensure origin from outside
+
+	measure(land, sphereSamples, "hits.csv");
+	measure(landConstant, sphereSamples, "hitsConstant.csv");
+}
+
+void measure(Landscape land, Vec!3[] sphereSamples, string outFile) {
+	ulong[] hits = new ulong[sphereSampleCount];
+	ulong[] peakSamples;
+	peakSamples.reserve(peakSampleCount);
+	while (peakSamples.length < peakSampleCount) {
+		ulong sample = cast(ulong) uniform(0, land.length);
+		if (!peakSamples.canFind(sample))
+			peakSamples ~= sample;
+	}
 
 	foreach (j, p; peakSamples) {
 		write("[", j.to!string, "/", peakSampleCount.to!string, "]\t\t\r");
@@ -187,18 +202,10 @@ void main() {
 			Hit hit = trace(land, ray);
 			if (hit.peakID == p)
 				hits[i] += 1;
-
-			// results.writeln(i.to!string, ",", org.x.to!string, ",", org.y.to!string, ",",
-			// 	org.z.to!string, ",", p.to!string, ",", hit.peakID.to!string, ",",
-			// 	hit.pos.x.to!string, ",", hit.pos.y.to!string, ",", hit.pos.z.to!string);
 		}
 	}
 
-	File settingsFile = File("settings.csv", "w");
-	settingsFile.writeln("sphereSampleCount,",sphereSampleCount.to!string);
-	settingsFile.writeln("peakSampleCount,",peakSampleCount.to!string);
-
-	File hitsFile = File("hits.csv", "w");
+	File hitsFile = File(outFile, "w");
 	hitsFile.writeln("org_id,hits");
 	foreach (i, h; hits) {
 		hitsFile.writeln(i.to!string, ",", h.to!string);
