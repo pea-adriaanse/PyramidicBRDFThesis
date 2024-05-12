@@ -5,6 +5,8 @@ import std.math;
 import math;
 import misc;
 import fibonacci;
+import std.algorithm.searching : canFind;
+import std.algorithm.sorting;
 import std.conv : to;
 
 struct Face {
@@ -80,8 +82,8 @@ alias Landscape = Vec!3[];
 
 // version = backfaceCulling;
 enum _slope = 54.7;
-enum _width = 20.0;
-enum _density = 0.6;
+enum _width = 20.0; //?
+enum _density = 0.6; //?
 
 PyramidShape shape = PyramidShape(degreesToRadians(_slope));
 
@@ -89,46 +91,145 @@ string toStr(float f) {
 	return to!string(f);
 }
 
-void main() {
-	Landscape land = createLandscape(_width, _density); // 20 micron, 0.6 per micron²
-
-	File landFile = File("land.csv", "w");
-	landFile.writeln("sep=,");
-	foreach (Vec!3 peak; land) {
-		landFile.writeln(peak.x.toStr, ",", peak.y.toStr, ",", peak.z.toStr);
-	}
-
-	uint N = 100;
-	SpherePoints points = SpherePoints(N);
-
-	File results = File("results.csv", "w");
-	results.writeln("sep=,");
-	results.writeln("org_x,org_y,org_z,hit,hit_x,hit_y,hit_z");
-
-	foreach (i; 0 .. N * N) {
-		Vec!3 org = Vec!3((_width / N) * (i % N) - _width / 2, (_width / N) * (floor((cast(float) i) / N)) - _width / 2,
-			1); // debugging
-		Ray ray = Ray(org, Vec!3(0, 0, -1));
-
-		// Vec!3 org = points.getPoint(i);
-		// Ray ray = Ray(org, Vec!3(0));
-		Hit hit = trace(land, ray);
-
-		if (!hit.hit)
-			hit.pos = Vec!3(0, 0, 1); // debugging
-		results.writeln(org.x.to!string, ",", org.y.to!string, ",", org.z.to!string, ",",
-			hit.hit ? "1" : "0", ",", hit.pos.x.to!string, ",", hit.pos.y.to!string, ",", hit.pos.z.to!string);
-	}
-
+interface Distribution {
+	float sample();
 }
 
-Landscape createLandscape(float width, float density) {
+class ConstantDistribution : Distribution {
+	float height;
+	this(float height) {
+		this.height = height;
+	}
+
+	float sample() {
+		return this.height;
+	}
+}
+
+/// Models distribution using histogram
+class HistogramDistribution : Distribution {
+	float[] cdf = [];
+	float rangeSize; // relates #buckets to range.
+	float bucketSize;
+
+	this(string file, float rangeSize) {
+		this.rangeSize = rangeSize;
+		foreach (char[] l; File(file).byLine()) {
+			this.cdf ~= l.to!float;
+		}
+		this.bucketSize = rangeSize / cdf.length;
+	}
+
+	float sample() {
+		float prob = uniform01();
+		foreach_reverse (bucket, cumulativeProb; cdf) {
+			if (cumulativeProb <= prob) {
+				return (bucket + 1) * bucketSize;
+			}
+		}
+		assert(0);
+	}
+}
+
+void main() {
+	string heightsFile = "heightCumulative.csv"; // Source: "Opto-electrical modelling and optimization study of a novel IBC c-Si solar cellOpto-electrical modelling and optimization study of a novel IBC c-Si solar cell"
+	// Distribution heightDistribution = new HistogramDistribution(heightsFile, 7.0);
+	Distribution heightDistribution = new ConstantDistribution(1);
+	float width = 100;
+	Landscape land = createLandscape(width, _density, heightDistribution); // 20 micron, 0.6 per micron²
+
+	// File landFile = File("land.csv", "w");
+	// landFile.writeln("sep=,");
+	// foreach (Vec!3 peak; land) {
+	// 	landFile.writeln(peak.x.toStr, ",", peak.y.toStr, ",", peak.z.toStr);
+	// }
+
+	uint sphereSampleCount = 1000;
+	SpherePoints spherePoints = SpherePoints(sphereSampleCount);
+	uint peakSampleCount = 300;
+	assert(peakSampleCount >= land.length);
+
+	ulong[] peakSamples;
+	peakSamples.reserve(peakSampleCount);
+	while (peakSamples.length < peakSampleCount) {
+		ulong sample = cast(ulong) uniform(0, land.length);
+		if (!peakSamples.canFind(sample))
+			peakSamples ~= sample;
+	}
+
+	// File results = File("results.csv", "w");
+	// results.writeln("sep=,");
+	// results.writeln("org_id,org_x,org_y,org_z,choice_id,peak_id,hit_x,hit_y,hit_z,peakSampleCount:,",
+	// 	peakSampleCount.to!string, ",", "sphereSampleCount:", ",", sphereSampleCount.to!string);
+
+	// foreach (i; 0 .. N * N) {
+	// Vec!3 org = Vec!3((_width / N) * (i % N) - _width / 2, (_width / N) * (floor((cast(float) i) / N)) - _width / 2,
+	// 	8.0);
+	// Ray ray = Ray(org, Vec!3(0, 0, -1));
+	// if (!hit.hit)
+	// 	hit.pos = Vec!3(0, 0, 1); // debugging
+
+	ulong[] hits = new ulong[sphereSampleCount];
+	Vec!3[] sphereSamples = new Vec!3[sphereSampleCount];
+
+	foreach (i; 0 .. sphereSampleCount)
+		sphereSamples[i] = spherePoints.getPoint(i) * cast(float) _width;
+
+	foreach (j, p; peakSamples) {
+		write("[", j.to!string, "/", peakSampleCount.to!string, "]\t\t\r");
+		stdout.flush();
+		Vec!3 peakSample = land[p];
+		foreach (i, sphereSample; sphereSamples) {
+			Vec!3 org = Vec!3(peakSample.x, peakSample.y, 0) + sphereSample;
+			// Vec!3 target = Vec!3(peakSample.x, peakSample.y, 0); // TODO sample across one face!!
+			Ray ray = Ray(org, -sphereSample);
+
+			Hit hit = trace(land, ray);
+			if (hit.peakID == p)
+				hits[i] += 1;
+
+			// results.writeln(i.to!string, ",", org.x.to!string, ",", org.y.to!string, ",",
+			// 	org.z.to!string, ",", p.to!string, ",", hit.peakID.to!string, ",",
+			// 	hit.pos.x.to!string, ",", hit.pos.y.to!string, ",", hit.pos.z.to!string);
+		}
+	}
+
+	File settingsFile = File("settings.csv", "w");
+	settingsFile.writeln("sphereSampleCount,",sphereSampleCount.to!string);
+	settingsFile.writeln("peakSampleCount,",peakSampleCount.to!string);
+
+	File hitsFile = File("hits.csv", "w");
+	hitsFile.writeln("org_id,hits");
+	foreach (i, h; hits) {
+		hitsFile.writeln(i.to!string, ",", h.to!string);
+	}
+}
+
+Landscape createLandscape(float width, float density, Distribution heightDistribution) {
 	ulong count = cast(ulong)(width * width * density);
-	Vec!3[] peaks = new Vec!3[count];
-	foreach (i; 0 .. count) {
-		peaks[i][0] = uniform!"()"(-width / 2, width / 2);
-		peaks[i][1] = uniform!"()"(-width / 2, width / 2);
-		peaks[i][2] = 0;
+	Vec!3[] peaks;
+	peaks.reserve(count);
+
+	// Decide on heights first.
+	float[] heights = new float[count];
+	foreach (i; 0 .. count)
+		heights[i] = heightDistribution.sample();
+
+	// Sort to place largest first.
+	sort!"a>b"(heights);
+
+	while (peaks.length < count) {
+		ulong i = peaks.length;
+		Vec!3 newPeak;
+		newPeak[0] = uniform!"()"(-width / 2, width / 2);
+		newPeak[1] = uniform!"()"(-width / 2, width / 2);
+		newPeak[2] = heights[i];
+
+		// Cull if burried
+		Hit hit = trace(peaks, Ray(newPeak, Vec!3(0, 0, 1)));
+		if (!hit.hit) {
+			peaks ~= newPeak;
+		}
 	}
 	return peaks;
 }
@@ -142,16 +243,28 @@ struct Hit {
 	bool hit = false;
 	Vec!3 pos;
 	float t = float.infinity;
+	ulong peakID;
 }
 
 Hit trace(Landscape land, Ray ray) {
 	Hit minHit;
-	foreach (Vec!3 peak; land) {
+	foreach (id, Vec!3 peak; land) {
 		Hit hit = trace(peak, ray);
-		if (hit.hit && (hit.t < minHit.t))
+		if (hit.hit && (hit.t < minHit.t)) {
 			minHit = hit;
+			minHit.peakID = id;
+		}
 	}
 	return minHit;
+}
+
+Hit trace(Vec!3 peak, Ray ray) {
+	foreach (Face f; shape.faces) {
+		Hit hit = trace(peak, f, ray);
+		if (hit.hit)
+			return hit;
+	}
+	return Hit(false);
 }
 
 unittest {
@@ -162,13 +275,10 @@ unittest {
 	assert(hit.pos == Vec!3(0, -1, -1.25));
 }
 
-Hit trace(Vec!3 peak, Ray ray) {
-	foreach (Face f; shape.faces) {
-		Hit hit = trace(peak, f, ray);
-		if (hit.hit)
-			return hit;
-	}
-	return Hit(false);
+unittest {
+	shape = PyramidShape(degreesToRadians(54.7));
+	Hit hit = trace(Vec!3(0, 0, 1), Ray(Vec!3(0), Vec!3(0, 0, 1)));
+	assert(hit.hit);
 }
 
 Hit trace(Vec!3 peak, Face face, Ray ray) {
@@ -191,10 +301,10 @@ Hit tracePlane(Vec!3 point, Vec!3 normal, Ray ray) {
 	float distToPlane = (point - ray.org).dot(normal);
 	float slope = ray.dir.dot(normal);
 
-	version (backfaceCulling) {
-		if (slope > 0)
-			return Hit(false);
-	}
+	// version (backfaceCulling) { //WARNING version breaks createLandscape culling
+	// 	if (slope > 0)
+	// 		return Hit(false);
+	// }
 	if (slope == 0 || signbit(slope) != signbit(distToPlane))
 		return Hit(false);
 
