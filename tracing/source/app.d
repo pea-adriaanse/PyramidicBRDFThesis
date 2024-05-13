@@ -3,6 +3,7 @@ import std.conv : to;
 import std.random;
 import std.math;
 import math;
+import std.algorithm.comparison : clamp;
 import misc;
 import sphere_samplers;
 import std.algorithm.searching : canFind;
@@ -131,19 +132,21 @@ enum _width = 20.0; //?
 float width = 100; // used
 enum _density = 0.6; //?
 
-uint simpleSphereLatCount = 100;
-uint simpleSphereLongCount = 10;
+uint simpleSphereLatCount = 16;
+uint simpleSphereLongCount = 16;
 uint fibonacciSphereCount = 400;
 
 uint sphereSampleCount; // determined given sampler used ^
 
-uint sampleCount = 500;
-float maxHeight = 7.0;
+uint sampleCount = 4000;
+float maxVarHeight = 7.0;
+float maxConstHeight = 1.0;
+uint heightBins = 40;
 
 void main() {
 	string heightsFile = "heightCumulative.csv"; // Source: "Opto-electrical modelling and optimization study of a novel IBC c-Si solar cellOpto-electrical modelling and optimization study of a novel IBC c-Si solar cell"
-	Distribution heightDistribution = new HistogramDistribution(heightsFile, maxHeight);
-	Distribution heightDistributionConstant = new ConstantDistribution(1);
+	Distribution heightDistribution = new HistogramDistribution(heightsFile, maxVarHeight);
+	Distribution heightDistributionConstant = new ConstantDistribution(maxConstHeight);
 	Landscape land = createLandscape(width, _density, heightDistribution); // 20 micron, 0.6 per micron²
 	Landscape landConstant = createLandscape(width, _density, heightDistributionConstant); // 20 micron, 0.6 per micron²
 
@@ -155,9 +158,9 @@ void main() {
 	// SphereSampler sphereSampler = new SphereFibonacci(sphereSampleCount);
 	SphereSampler sphereSampler = new SphereSimple(simpleSphereLongCount, simpleSphereLatCount, true);
 	sphereSampleCount = cast(uint) sphereSampler.data.length;
-	sphereSampler.save("sphereSamples.csv");
+	sphereSampler.save("results/sphereSamples.csv");
 
-	File settingsFile = File("settings.csv", "w");
+	File settingsFile = File("results/settings.csv", "w");
 	settingsFile.writeln("sphereSampler,", sphereSampler.name);
 	settingsFile.writeln("sphereSampleCount,", sphereSampleCount.to!string);
 	settingsFile.writeln("sampleCount,", sampleCount.to!string);
@@ -167,15 +170,22 @@ void main() {
 	foreach (i; 0 .. sphereSampleCount)
 		sphereSamples ~= sphereSampler.data[i] * cast(float) _width; // Ensure origin from outside
 
-	measure(land, sphereSamples, "hits.csv");
-	measure(landConstant, sphereSamples, "hitsConstant.csv");
+	// measure(land, sphereSamples, maxVarHeight, "hits.csv");
+	measure(landConstant, sphereSamples, maxConstHeight, heightBins, "results/hitsConstant.csv",
+		"results/hitsHeightConstant.csv", "results/heightDistributionConstant.csv");
 }
 
-void measure(Landscape land, Vec!3[] sphereSamples, string outFile) {
+void measure(Landscape land, Vec!3[] sphereSamples, float maxHeight, uint heightBins, string outFile,
+	string outHeightFile, string outHeightDistributionFile) {
 	ulong[] hits = new ulong[sphereSampleCount];
+	uint[2][] heightHits = new uint[2][heightBins];
 	Vec!3[] samplePoss;
 	ulong[] samplePeakIDs;
 
+	float minSampleHeight = float.infinity;
+	float maxSampleHeight = -float.infinity;
+
+	// Create Samples
 	samplePoss.reserve(sampleCount);
 	samplePeakIDs.reserve(sampleCount);
 	foreach (i; 0 .. sampleCount) {
@@ -183,35 +193,71 @@ void measure(Landscape land, Vec!3[] sphereSamples, string outFile) {
 		Vec!3 pos;
 		Hit hit;
 		while (!east) { // Filter for east faces
-			pos = Vec!3(uniform(0, width / 2), uniform(0, width / 2), maxHeight + 1);
-			Ray ray = Ray(pos, Vec!3(0, 0, -1));
+			Vec!3 org = Vec!3(uniform(-width / 2, width / 2), uniform(-width / 2, width / 2), maxHeight + 1);
+			Ray ray = Ray(org, Vec!3(0, 0, -1));
 			hit = trace(land, ray);
 			assert(hit.hit);
-			assert(hit.pos.almostEq(pos));
-			east = hit.face == 0;
+			org.assertAlmostEq(Vec!3(hit.pos.x, hit.pos.y, maxHeight + 1));
+			east = hit.face == 0 && hit.pos.z > 0.5;
+			pos = hit.pos;
 		}
 		samplePoss ~= pos;
 		samplePeakIDs ~= hit.peakID;
+
+		if (pos.z < minSampleHeight)
+			minSampleHeight = pos.z;
+		if (pos.z > maxSampleHeight)
+			maxSampleHeight = pos.z;
 	}
 
+	// Bin sample heights
+	uint[] bins = new uint[heightBins];
+	foreach (p; samplePoss) {
+		uint heightBin = cast(uint) floor(heightBins * (p.z - minSampleHeight) / (maxSampleHeight - minSampleHeight));
+		heightBin = clamp(heightBin, 0, heightBins - 1); // Floating error precaution
+		bins[heightBin] += 1;
+	}
+
+	// Sample for visibility
 	foreach (sampleIDs, samplePos; samplePoss) {
+		// Loading bar
 		write("[", sampleIDs.to!string, "/", sampleCount.to!string, "]\t\t\r");
 		stdout.flush();
 		foreach (sphereID, sphereSample; sphereSamples) {
 			Vec!3 org = samplePos + sphereSample; // Assuming East Face
-			// Vec!3 target = Vec!3(peakSample.x, peakSample.y, 0); // TODO sample across one face!!
-			Ray ray = Ray(org, -sphereSample);
-
+			Ray ray = Ray(org, -sphereSample.normalize());
 			Hit hit = trace(land, ray);
-			if (hit.peakID == samplePeakIDs[sampleIDs])
+
+			uint heightBin = cast(uint) floor(
+				heightBins * (hit.pos.z - minSampleHeight) / (maxSampleHeight - minSampleHeight));
+			heightBin = clamp(heightBin, 0, heightBins - 1); // Floating error precaution
+			heightHits[heightBin][0] += 1;
+
+			if (hit.peakID == samplePeakIDs[sampleIDs]) {
+				heightHits[heightBin][1] += 1;
 				hits[sphereID] += 1;
+			}
 		}
 	}
 
+	// Save results
 	File hitsFile = File(outFile, "w");
 	hitsFile.writeln("org_id,hits");
-	foreach (i, h; hits) {
+	foreach (i, h; hits)
 		hitsFile.writeln(i.to!string, ",", h.to!string);
+
+	File heightHitsFile = File(outHeightFile, "w");
+	heightHitsFile.writeln("occurrance,hit");
+	foreach (h; heightHits)
+		heightHitsFile.writeln(h[0].to!string, ",", h[1].to!string);
+
+	File sampleHeightsFile = File(outHeightDistributionFile, "w");
+	sampleHeightsFile.writeln("count,minHeight,maxHeight");
+	foreach (i, b; bins) {
+		// if (i == 0) {
+		// 	sampleHeightsFile.writeln(p.z.to!string, ",", minSampleHeight.to!string, ",", maxSampleHeight.to!string);
+		// }
+		sampleHeightsFile.writeln(b.to!string);
 	}
 }
 
