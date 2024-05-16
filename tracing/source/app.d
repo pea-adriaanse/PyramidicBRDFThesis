@@ -4,6 +4,7 @@ import std.random;
 import std.math;
 import math;
 import std.algorithm.comparison : clamp;
+import std.algorithm.sorting : sort;
 import misc;
 import sphere_samplers;
 import std.algorithm.searching : canFind;
@@ -133,7 +134,7 @@ enum float width = 40; // used
 enum _density = 0.6; //? per micron²
 
 uint simpleSphereLatCount = 16;
-uint simpleSphereLongCount = 16;
+uint simpleSphereLongCount = 10;
 uint fibonacciSphereCount = 400;
 
 uint sphereSampleCount; // determined given sampler used ^
@@ -141,7 +142,7 @@ uint sphereSampleCount; // determined given sampler used ^
 uint sampleCount = 4000;
 float maxVarHeight = 7.0;
 float maxConstHeight = 1.0;
-uint heightBins = 40;
+uint heightBins = 10;
 uint landWidthSampleCount = cast(uint)(5 * width);
 
 void main() {
@@ -163,13 +164,15 @@ void main() {
 	settingsFile.writeln("landWidthSampleCount,", landWidthSampleCount.to!string);
 	settingsFile.writeln("width,", width);
 	settingsFile.writeln("maxConstHeight,", maxConstHeight);
-
-	Vec!3[] sphereSamples = sphereSampler.data;
+	settingsFile.writeln("heightBins,", heightBins);
+	settingsFile.writeln("simpleSphereLongCount,", simpleSphereLongCount);
+	settingsFile.writeln("simpleSphereLatCount,", simpleSphereLatCount);
 
 	measureLand(landConstant, "results/land.csv");
 	// measure(land, sphereSamples, maxVarHeight, "hits.csv");
-	measure(landConstant, sphereSamples, maxConstHeight, heightBins, "results/hitsConstant.csv",
-		"results/hitsHeightConstant.csv", "results/heightDistributionConstant.csv");
+	measure(landConstant, sphereSampler, maxConstHeight, heightBins, "results/hitsConstant.csv",
+		"results/hitsHeightConstant.csv", "results/heightDistributionConstant.csv",
+		"results/hitsConstantByHeight.csv");
 
 	// measureHighPoint(landConstant, sphereSamples, "results/highPointSampling.csv");
 }
@@ -220,18 +223,16 @@ void measureLand(const Landscape land, string fileName) {
 	}
 }
 
-void measure(const Landscape land, const Vec!3[] sphereSamples, float maxHeight, uint heightBins,
-	string outFile, string outHeightFile, string outHeightDistributionFile) {
+void measure(const Landscape land, SphereSampler sphereSampler, float maxHeight, uint heightBins,
+	string outFile, string outHeightFile, string outHeightDistributionFile, string outHitsByHeightFile) {
 	uint[] hits = new uint[sphereSampleCount];
+	uint[2][] hitsByHeight = new uint[2][sphereSampleCount * heightBins];
 	uint[2][] heightHits = new uint[2][heightBins];
 	Vec!3[] samplePoss;
 	uint[] samplePeakIDs;
 
 	float minSampleHeight = float.infinity;
 	float maxSampleHeight = -float.infinity;
-
-	File missed = File("results/missed.csv", "w");
-	missed.writeln("orgx,orgy,orgz,dirPosx,dirPosy,dirPosz,hitx,hity,hitz");
 
 	// Create Samples
 	samplePoss.reserve(sampleCount);
@@ -272,7 +273,7 @@ void measure(const Landscape land, const Vec!3[] sphereSamples, float maxHeight,
 		write("[", sampleID.to!string, "/", sampleCount.to!string, "]\t\t\r");
 		stdout.flush();
 
-		foreach (sphereID, sphereSample; sphereSamples) {
+		foreach (sphereID, sphereSample; sphereSampler.data) {
 			Ray ray = Ray(samplePos, sphereSample, samplePeakIDs[sampleID]); // Assuming East Face
 			Hit hit = trace(land, ray);
 
@@ -280,14 +281,11 @@ void measure(const Landscape land, const Vec!3[] sphereSamples, float maxHeight,
 				heightBins * (samplePos.z - minSampleHeight) / (maxSampleHeight - minSampleHeight));
 			heightBin = clamp(heightBin, 0, heightBins - 1); // Floating error precaution
 			heightHits[heightBin][0] += 1;
-
+			hitsByHeight[heightBin * sphereSampleCount + sphereID][0] += 1;
 			if (!hit.hit) { // Not obscured
 				heightHits[heightBin][1] += 1;
 				hits[sphereID] += 1;
-			} else {
-				Vec!3 dirPoint = samplePos + sphereSample * width;
-				missed.writeln(samplePos.x, ",", samplePos.y, ",", samplePos.z, ",", dirPoint.x,
-					",", dirPoint.y, ",", dirPoint.z, ",", hit.pos.x, ",", hit.pos.y, ",", hit.pos.z);
+				hitsByHeight[heightBin * sphereSampleCount + sphereID][1] += 1;
 			}
 		}
 	}
@@ -297,6 +295,27 @@ void measure(const Landscape land, const Vec!3[] sphereSamples, float maxHeight,
 	hitsFile.writeln("org_id,hits");
 	foreach (i, h; hits)
 		hitsFile.writeln(i.to!string, ",", h.to!string);
+
+	File hitsByHeightFile = File(outHitsByHeightFile, "w");
+	hitsByHeightFile.writeln("lat,hits");
+	// Processing hits by height
+foreach (heightBin; 0 .. heightBins) {
+	uint[2][float] binHits;
+	foreach (sphereID; 0 .. sphereSampleCount) {
+		uint index = heightBin * sphereSampleCount + sphereID;
+		float lat = sphereSampler.angles[sphereID][1];
+		if (lat !in binHits)
+			binHits[lat] = [0, 0];
+		binHits[lat][0] += hitsByHeight[index][0];
+		binHits[lat][1] += hitsByHeight[index][1];
+	}
+	foreach (lat; binHits.keys.sort()) {
+		if (binHits[lat][0] == 0)
+			hitsByHeightFile.writeln(lat, ",", 0);
+		else
+			hitsByHeightFile.writeln(lat, ",", binHits[lat][1] / cast(float) binHits[lat][0]);
+	}
+}
 
 	File heightHitsFile = File(outHeightFile, "w");
 	heightHitsFile.writeln("occurrance,hit");
