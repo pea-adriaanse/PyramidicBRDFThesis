@@ -128,9 +128,9 @@ class HistogramDistribution : Distribution {
 
 PyramidShape shape = PyramidShape(degreesToRadians(_slope));
 enum _slope = 54.7;
-enum _width = 20.0; //?
-float width = 100; // used
-enum _density = 0.6; //?
+enum _width = 20.0; //? in micron
+enum float width = 40; // used
+enum _density = 0.6; //? per micron²
 
 uint simpleSphereLatCount = 16;
 uint simpleSphereLongCount = 16;
@@ -142,18 +142,14 @@ uint sampleCount = 4000;
 float maxVarHeight = 7.0;
 float maxConstHeight = 1.0;
 uint heightBins = 40;
+uint landWidthSampleCount = cast(uint)(5 * width);
 
 void main() {
 	string heightsFile = "heightCumulative.csv"; // Source: "Opto-electrical modelling and optimization study of a novel IBC c-Si solar cellOpto-electrical modelling and optimization study of a novel IBC c-Si solar cell"
 	Distribution heightDistribution = new HistogramDistribution(heightsFile, maxVarHeight);
 	Distribution heightDistributionConstant = new ConstantDistribution(maxConstHeight);
 	Landscape land = createLandscape(width, _density, heightDistribution); // 20 micron, 0.6 per micron²
-	Landscape landConstant = createLandscape(width, _density, heightDistributionConstant); // 20 micron, 0.6 per micron²
-
-	// File landFile = File("land.csv", "w");
-	// landFile.writeln("sep=,");
-	// foreach (Vec!3 peak; land)
-	// 	landFile.writeln(peak.x.toStr, ",", peak.y.toStr, ",", peak.z.toStr);
+	Landscape landConstant = createLandscape(width, _density, heightDistributionConstant);
 
 	// SphereSampler sphereSampler = new SphereFibonacci(sphereSampleCount);
 	SphereSampler sphereSampler = new SphereSimple(simpleSphereLongCount, simpleSphereLatCount, true);
@@ -164,26 +160,78 @@ void main() {
 	settingsFile.writeln("sphereSampler,", sphereSampler.name);
 	settingsFile.writeln("sphereSampleCount,", sphereSampleCount.to!string);
 	settingsFile.writeln("sampleCount,", sampleCount.to!string);
+	settingsFile.writeln("landWidthSampleCount,", landWidthSampleCount.to!string);
+	settingsFile.writeln("width,", width);
+	settingsFile.writeln("maxConstHeight,", maxConstHeight);
 
-	Vec!3[] sphereSamples;
-	sphereSamples.reserve(sphereSampleCount);
-	foreach (i; 0 .. sphereSampleCount)
-		sphereSamples ~= sphereSampler.data[i] * cast(float) _width; // Ensure origin from outside
+	Vec!3[] sphereSamples = sphereSampler.data;
 
+	measureLand(landConstant, "results/land.csv");
 	// measure(land, sphereSamples, maxVarHeight, "hits.csv");
 	measure(landConstant, sphereSamples, maxConstHeight, heightBins, "results/hitsConstant.csv",
 		"results/hitsHeightConstant.csv", "results/heightDistributionConstant.csv");
+
+	// measureHighPoint(landConstant, sphereSamples, "results/highPointSampling.csv");
 }
 
-void measure(Landscape land, Vec!3[] sphereSamples, float maxHeight, uint heightBins, string outFile,
-	string outHeightFile, string outHeightDistributionFile) {
-	ulong[] hits = new ulong[sphereSampleCount];
+void measureHighPoint(const Landscape land, const Vec!3[] sphereSamples, string fileName) {
+	Vec!3 sample;
+	uint samplePeakID;
+	bool goodSample = false;
+	while (!goodSample) {
+		Vec!3 org = Vec!3(uniform(-width / 2, width / 2), uniform(-width / 2, width / 2), maxConstHeight + 1);
+		Ray ray = Ray(org, Vec!3(0, 0, -1));
+		Hit hit = trace(land, ray);
+		sample = hit.pos;
+		samplePeakID = hit.peakID;
+		goodSample = sample.z > 0.85 * maxConstHeight && hit.face == 0;
+	}
+	measureTracing(land, sphereSamples, [sample], [samplePeakID], fileName);
+}
+
+void measureTracing(const Landscape land, const Vec!3[] sphereSamples, const Vec!3[] samples,
+	const uint[] samplePeakIDs, string fileName) {
+	File file = File(fileName, "w");
+	file.writeln("orgx,orgy,orgz,dirPointx,dirPointy,dirPointz,hit");
+	foreach (i, Vec!3 sample; samples) {
+		foreach (Vec!3 sphereSample; sphereSamples) {
+			Ray ray = Ray(sample, sphereSample, samplePeakIDs[i]);
+			Hit hit = trace(land, ray);
+
+			bool hitPeak = hit.hit == false; // Not obscured
+			Vec!3 dirPoint = sample + sphereSample;
+			file.writeln(sample.x, ",", sample.y, ",", sample.z, ",", dirPoint.x, ",",
+				dirPoint.y, ",", dirPoint.z, ",", hitPeak);
+		}
+	}
+}
+
+void measureLand(const Landscape land, string fileName) {
+	File file = File(fileName, "w");
+	file.writeln("x,y,z");
+	foreach (x; 0 .. landWidthSampleCount) {
+		foreach (y; 0 .. landWidthSampleCount) {
+			Ray ray = Ray(Vec!3(x * width / landWidthSampleCount - width / 2,
+					y * width / landWidthSampleCount - width / 2, maxConstHeight + 1), Vec!3(0, 0, -1));
+			Hit hit = trace(land, ray);
+			assert(hit.hit);
+			file.writeln(hit.pos.x, ",", hit.pos.y, ",", hit.pos.z);
+		}
+	}
+}
+
+void measure(const Landscape land, const Vec!3[] sphereSamples, float maxHeight, uint heightBins,
+	string outFile, string outHeightFile, string outHeightDistributionFile) {
+	uint[] hits = new uint[sphereSampleCount];
 	uint[2][] heightHits = new uint[2][heightBins];
 	Vec!3[] samplePoss;
-	ulong[] samplePeakIDs;
+	uint[] samplePeakIDs;
 
 	float minSampleHeight = float.infinity;
 	float maxSampleHeight = -float.infinity;
+
+	File missed = File("results/missed.csv", "w");
+	missed.writeln("orgx,orgy,orgz,dirPosx,dirPosy,dirPosz,hitx,hity,hitz");
 
 	// Create Samples
 	samplePoss.reserve(sampleCount);
@@ -198,7 +246,7 @@ void measure(Landscape land, Vec!3[] sphereSamples, float maxHeight, uint height
 			hit = trace(land, ray);
 			assert(hit.hit);
 			org.assertAlmostEq(Vec!3(hit.pos.x, hit.pos.y, maxHeight + 1));
-			east = hit.face == 0 && hit.pos.z > 0.5;
+			east = hit.face == 0;
 			pos = hit.pos;
 		}
 		samplePoss ~= pos;
@@ -219,23 +267,27 @@ void measure(Landscape land, Vec!3[] sphereSamples, float maxHeight, uint height
 	}
 
 	// Sample for visibility
-	foreach (sampleIDs, samplePos; samplePoss) {
+	foreach (sampleID, samplePos; samplePoss) {
 		// Loading bar
-		write("[", sampleIDs.to!string, "/", sampleCount.to!string, "]\t\t\r");
+		write("[", sampleID.to!string, "/", sampleCount.to!string, "]\t\t\r");
 		stdout.flush();
+
 		foreach (sphereID, sphereSample; sphereSamples) {
-			Vec!3 org = samplePos + sphereSample; // Assuming East Face
-			Ray ray = Ray(org, -sphereSample.normalize());
+			Ray ray = Ray(samplePos, sphereSample, samplePeakIDs[sampleID]); // Assuming East Face
 			Hit hit = trace(land, ray);
 
 			uint heightBin = cast(uint) floor(
-				heightBins * (hit.pos.z - minSampleHeight) / (maxSampleHeight - minSampleHeight));
+				heightBins * (samplePos.z - minSampleHeight) / (maxSampleHeight - minSampleHeight));
 			heightBin = clamp(heightBin, 0, heightBins - 1); // Floating error precaution
 			heightHits[heightBin][0] += 1;
 
-			if (hit.peakID == samplePeakIDs[sampleIDs]) {
+			if (!hit.hit) { // Not obscured
 				heightHits[heightBin][1] += 1;
 				hits[sphereID] += 1;
+			} else {
+				Vec!3 dirPoint = samplePos + sphereSample * width;
+				missed.writeln(samplePos.x, ",", samplePos.y, ",", samplePos.z, ",", dirPoint.x,
+					",", dirPoint.y, ",", dirPoint.z, ",", hit.pos.x, ",", hit.pos.y, ",", hit.pos.z);
 			}
 		}
 	}
@@ -262,7 +314,7 @@ void measure(Landscape land, Vec!3[] sphereSamples, float maxHeight, uint height
 }
 
 Landscape createLandscape(float width, float density, Distribution heightDistribution) {
-	ulong count = cast(ulong)(width * width * density);
+	uint count = cast(uint)(width * width * density);
 	Vec!3[] peaks;
 	peaks.reserve(count);
 
@@ -275,7 +327,7 @@ Landscape createLandscape(float width, float density, Distribution heightDistrib
 	sort!"a>b"(heights);
 
 	while (peaks.length < count) {
-		ulong i = peaks.length;
+		uint i = cast(uint) peaks.length;
 		Vec!3 newPeak;
 		newPeak[0] = uniform!"()"(-width / 2, width / 2);
 		newPeak[1] = uniform!"()"(-width / 2, width / 2);
@@ -293,36 +345,41 @@ Landscape createLandscape(float width, float density, Distribution heightDistrib
 struct Ray {
 	Vec!3 org;
 	Vec!3 dir;
+	uint exculdePeak = uint.max;
 }
 
 struct Hit {
 	bool hit = false;
 	Vec!3 pos;
 	float t = float.infinity;
-	ulong peakID;
+	uint peakID;
 	ubyte face;
 }
 
-Hit trace(Landscape land, Ray ray) {
+Hit trace(const Landscape land, Ray ray) {
 	Hit minHit;
 	foreach (id, Vec!3 peak; land) {
+		if (ray.exculdePeak == id)
+			continue;
 		Hit hit = trace(peak, ray);
 		if (hit.hit && (hit.t < minHit.t)) {
 			minHit = hit;
-			minHit.peakID = id;
+			minHit.peakID = cast(uint) id;
 		}
 	}
 	return minHit;
 }
 
 Hit trace(Vec!3 peak, Ray ray) {
+	Hit minHit;
 	foreach (ubyte i, Face f; shape.faces) {
 		Hit hit = trace(peak, f, ray);
-		hit.face = i;
-		if (hit.hit)
-			return hit;
+		if (hit.hit && hit.t < minHit.t) {
+			minHit = hit;
+			minHit.face = i;
+		}
 	}
-	return Hit(false);
+	return minHit;
 }
 
 unittest {
@@ -363,7 +420,7 @@ Hit tracePlane(Vec!3 point, Vec!3 normal, Ray ray) {
 	// 	if (slope > 0)
 	// 		return Hit(false);
 	// }
-	if (slope == 0 || signbit(slope) != signbit(distToPlane))
+	if (slope == 0 || (signbit(slope) != signbit(distToPlane)))
 		return Hit(false);
 
 	float t = distToPlane / slope;
