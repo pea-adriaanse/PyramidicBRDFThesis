@@ -1,16 +1,17 @@
-import std.stdio;
-import std.conv : to;
-import std.random;
-import std.math;
 import math;
-import std.algorithm.comparison : clamp;
-import std.algorithm.sorting : sort;
 import misc;
+import ply;
 import sphere_samplers;
+import std.algorithm.comparison : clamp;
 import std.algorithm.searching : canFind;
+import std.algorithm.sorting : sort;
 import std.algorithm.sorting;
 import std.conv : to;
+import std.conv : to;
 import std.exception : enforce;
+import std.math;
+import std.random;
+import std.stdio;
 
 struct Face {
 	Vec!3[2] legs;
@@ -145,7 +146,46 @@ float maxConstHeight = 1.0;
 uint heightBins = 10;
 uint landWidthSampleCount = cast(uint)(5 * width);
 
-void main() {
+void main(string[] args) {
+	if (args.length <= 1)
+		return;
+	switch (args[1]) {
+		case "experiment":
+			return experiment();
+		case "generate":
+			return generate();
+		default:
+			writeln("Choose:\n\t- experiment\n\t- generate");
+	}
+}
+
+void generate() {
+	float error = 0.001;
+	float L = ceil(tan(shape.slope) * sqrt(-log(error) / (4.0 * _density))); // ceil optional
+
+	Distribution heightDistribution = new ConstantDistribution(L);
+	Landscape land = createLandscape(1000, _density, heightDistribution);
+
+	Vec!3[5] shapeVertices = Vec!3(0, 0, 0) ~ shape.legs.dup;
+	shapeVertices[] = shapeVertices[] * (-L / shape.legs[0].z);
+	uint[3][] shapeFaces = [[0, 1, 2], [0, 2, 3], [0, 3, 4], [0, 4, 1]];
+
+	Vec!3[] vertices;
+	uint[3][] faces;
+	foreach (index, Vec!3 peak; land) {
+		foreach (v; shapeVertices)
+			vertices ~= v + peak;
+		foreach (f; shapeFaces) {
+			uint[3] newFace;
+			newFace[] = f[] + cast(uint) (index * shapeVertices.length);
+			faces ~= newFace;
+		}
+	}
+
+	Ply(vertices, faces).saveToFile("land.ply");
+}
+
+void experiment() {
 	string heightsFile = "heightCumulative.csv"; // Source: "Opto-electrical modelling and optimization study of a novel IBC c-Si solar cellOpto-electrical modelling and optimization study of a novel IBC c-Si solar cell"
 	Distribution heightDistribution = new HistogramDistribution(heightsFile, maxVarHeight);
 	Distribution heightDistributionConstant = new ConstantDistribution(maxConstHeight);
@@ -299,23 +339,23 @@ void measure(const Landscape land, SphereSampler sphereSampler, float maxHeight,
 	File hitsByHeightFile = File(outHitsByHeightFile, "w");
 	hitsByHeightFile.writeln("lat,hits");
 	// Processing hits by height
-foreach (heightBin; 0 .. heightBins) {
-	uint[2][float] binHits;
-	foreach (sphereID; 0 .. sphereSampleCount) {
-		uint index = heightBin * sphereSampleCount + sphereID;
-		float lat = sphereSampler.angles[sphereID][1];
-		if (lat !in binHits)
-			binHits[lat] = [0, 0];
-		binHits[lat][0] += hitsByHeight[index][0];
-		binHits[lat][1] += hitsByHeight[index][1];
+	foreach (heightBin; 0 .. heightBins) {
+		uint[2][float] binHits;
+		foreach (sphereID; 0 .. sphereSampleCount) {
+			uint index = heightBin * sphereSampleCount + sphereID;
+			float lat = sphereSampler.angles[sphereID][1];
+			if (lat !in binHits)
+				binHits[lat] = [0, 0];
+			binHits[lat][0] += hitsByHeight[index][0];
+			binHits[lat][1] += hitsByHeight[index][1];
+		}
+		foreach (lat; binHits.keys.sort()) {
+			if (binHits[lat][0] == 0)
+				hitsByHeightFile.writeln(lat, ",", 0);
+			else
+				hitsByHeightFile.writeln(lat, ",", binHits[lat][1] / cast(float) binHits[lat][0]);
+		}
 	}
-	foreach (lat; binHits.keys.sort()) {
-		if (binHits[lat][0] == 0)
-			hitsByHeightFile.writeln(lat, ",", 0);
-		else
-			hitsByHeightFile.writeln(lat, ",", binHits[lat][1] / cast(float) binHits[lat][0]);
-	}
-}
 
 	File heightHitsFile = File(outHeightFile, "w");
 	heightHitsFile.writeln("occurrance,hit");
@@ -323,7 +363,8 @@ foreach (heightBin; 0 .. heightBins) {
 		heightHitsFile.writeln(h[0].to!string, ",", h[1].to!string);
 
 	File sampleHeightsFile = File(outHeightDistributionFile, "w");
-	sampleHeightsFile.writeln("count,minHeight,maxHeight");
+	sampleHeightsFile.writeln(
+		"count,minHeight=" ~ minSampleHeight.to!string ~ ",maxHeight=" ~ maxSampleHeight.to!string);
 	foreach (i, b; bins) {
 		// if (i == 0) {
 		// 	sampleHeightsFile.writeln(p.z.to!string, ",", minSampleHeight.to!string, ",", maxSampleHeight.to!string);
