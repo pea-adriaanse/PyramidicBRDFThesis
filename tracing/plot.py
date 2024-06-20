@@ -90,6 +90,12 @@ heightPoints = readData("results/highPointSampling.csv")
 # 	ax.plot(x,y,z, c=color, zorder=4)
 plt.show()
 
+# Plot lyannes shadowing
+shadow_lyanne = readData("results/shadow_lyanne.csv")
+shadow_lyanne_theta = [float(x) for x in shadow_lyanne["theta"]]
+shadow_lyanne_shadow = [float(x) for x in shadow_lyanne["shadow"]]
+plt.plot(shadow_lyanne_theta, shadow_lyanne_shadow, "r-", label="lyanne")
+
 # Plot shadowing function
 sphereSamples = readDataPoint("results/sphereSamples.csv")
 # hits = [int(x)/sampleCount for x in hitsData["hits"]]

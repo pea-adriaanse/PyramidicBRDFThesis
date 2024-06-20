@@ -10,8 +10,11 @@ import std.conv : to;
 import std.conv : to;
 import std.exception : enforce;
 import std.math;
+import std.parallelism;
 import std.random;
 import std.stdio;
+import std.path;
+import std.string : strip;
 
 struct Face {
 	Vec!3[2] legs;
@@ -148,41 +151,125 @@ uint landWidthSampleCount = cast(uint)(5 * width);
 
 void main(string[] args) {
 	if (args.length <= 1)
-		return;
+		return writeln("Choose:\n\t- experiment\n\t- generate\n\t- test");
 	switch (args[1]) {
 		case "experiment":
 			return experiment();
 		case "generate":
-			return generate();
+			write("landscape size: ");
+			float size = readln().strip().to!float;
+			enforce(size > 0, "Size cannot be negative.");
+			write("output file: ");
+			string fileName = readln().strip();
+			enforce(isValidFilename(fileName), "File name invalid.");
+			return generate(size, fileName);
+		case "test":
+			return test_shadowing();
 		default:
-			writeln("Choose:\n\t- experiment\n\t- generate");
+			return writeln("Choose:\n\t- experiment\n\t- generate\n\t- test");
 	}
 }
 
-void generate() {
+void generate(bool splitTriangles = true)(float size, string fileName) {
+	import std.datetime.stopwatch;
+
+	StopWatch watch = StopWatch(AutoStart.yes);
+
 	float error = 0.001;
 	float L = ceil(tan(shape.slope) * sqrt(-log(error) / (4.0 * _density))); // ceil optional
 
 	Distribution heightDistribution = new ConstantDistribution(L);
-	Landscape land = createLandscape(1000, _density, heightDistribution);
+	Landscape land = createLandscape(size, _density, heightDistribution, false);
 
 	Vec!3[5] shapeVertices = Vec!3(0, 0, 0) ~ shape.legs.dup;
 	shapeVertices[] = shapeVertices[] * (-L / shape.legs[0].z);
-	uint[3][] shapeFaces = [[0, 1, 2], [0, 2, 3], [0, 3, 4], [0, 4, 1]];
+	uint[3][4] shapeFaces;
+	if (splitTriangles)
+		shapeFaces = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10, 11]];
+	else
+		shapeFaces = [[0, 1, 2], [0, 2, 3], [0, 3, 4], [0, 4, 1]];
 
-	Vec!3[] vertices;
-	uint[3][] faces;
-	foreach (index, Vec!3 peak; land) {
-		foreach (v; shapeVertices)
-			vertices ~= v + peak;
-		foreach (f; shapeFaces) {
-			uint[3] newFace;
-			newFace[] = f[] + cast(uint) (index * shapeVertices.length);
-			faces ~= newFace;
-		}
+	enum vertCount = splitTriangles ? 12 : 5;
+	__gshared Vec!3[] vertices;
+	vertices = new Vec!3[land.length * vertCount];
+	__gshared uint[3][] faces;
+	faces = new uint[3][land.length * 4];
+	static if (splitTriangles) {
+		__gshared Vec!3[] normals;
+		normals = new Vec!3[vertices.length];
 	}
 
-	Ply(vertices, faces).saveToFile("land.ply");
+	foreach (index, Vec!3 peak; parallel(land)) {
+		Vec!3[5] pyramidVertices = shapeVertices;
+		// pyramidVertices[] = pyramidVertices[] + peak; // Compiler bug'
+		foreach (ref v; pyramidVertices)
+			v = v + peak;
+
+		static if (splitTriangles) {
+			vertices[index * vertCount .. (index + 1) * vertCount] = [
+				pyramidVertices[0], pyramidVertices[1], pyramidVertices[2], pyramidVertices[0],
+				pyramidVertices[2], pyramidVertices[3], pyramidVertices[0], pyramidVertices[3],
+				pyramidVertices[4], pyramidVertices[0], pyramidVertices[4], pyramidVertices[1],
+			];
+			normals[index * vertCount .. (index + 1) * vertCount] = [
+				shape.normalN, shape.normalN, shape.normalN, shape.normalW, shape.normalW,
+				shape.normalW, shape.normalS, shape.normalS, shape.normalS, shape.normalE,
+				shape.normalE, shape.normalE
+			];
+		} else
+			vertices[index * vertCount .. (index + 1) * vertCount] = pyramidVertices;
+
+		foreach (fi, f; shapeFaces) {
+			uint[3] newFace;
+			newFace[] = f[] + cast(uint)(index * vertCount);
+			faces[index * shapeFaces.length + fi] = newFace;
+		}
+	}
+	writeln("Mesh created");
+
+	static if (splitTriangles)
+		Ply.saveToFile(cast(immutable) vertices, cast(immutable) faces, cast(immutable) normals, fileName);
+	else
+		Ply.saveToFile(cast(immutable) vertices, cast(immutable) faces, fileName);
+	writeln("PLY File created");
+	writeln("Milliseconds: ", watch.peek().total!"msecs");
+}
+
+void test_shadowing() {
+	Vec!3 zeroAzimuth(Vec!3 r) {
+		float x = sqrt(1.0f - r.z * r.z);
+		return Vec!3(x, 0, r.z);
+	}
+
+	float shadow_lyanne(Vec!3 o, Vec!3 v) {
+		if (o.dot(v) < 0.0)
+			return 0.0;
+		Vec!3 r = zeroAzimuth(o);
+
+		float rg = r.z;
+		if (rg < 0.0)
+			return 0.0;
+		float D = 1.0 / (4.0 * cos(degreesToRadians(54.7)));
+		float rfe = (r.z * shape.normalE.z) + (r.x * shape.normalE.x);
+		float rfo = r.z * shape.normalN.z;
+
+		float numerator = rg;
+		float denominator = D * (rfe + 2 * rfo);
+		float shadowing = numerator / denominator;
+		if (shadowing > 1)
+			return 1.0;
+		return shadowing;
+	}
+
+	File file = File("results/shadow_lyanne.csv", "w");
+	file.writeln("theta,shadow");
+	uint steps = 200; // >= 2
+	foreach (i; 0 .. steps) {
+		float theta = i * PI_2 / (steps - 1.0);
+		Vec!3 o = Vec!3(sin(theta), 0, cos(theta));
+		float shadow = shadow_lyanne(o, shape.normalE);
+		file.writeln(theta, ",", shadow);
+	}
 }
 
 void experiment() {
@@ -373,7 +460,14 @@ void measure(const Landscape land, SphereSampler sphereSampler, float maxHeight,
 	}
 }
 
-Landscape createLandscape(float width, float density, Distribution heightDistribution) {
+/// Generate Pyramid Landscape
+/// Params:
+///   width = square width of sample (micrometers)
+///   density = density of pyramids (#/micrometer)
+///   heightDistribution = Distribution of pyramid peak heights
+///   testBurried = test if peaks are burried under surface & cull. (Not necessary at constant peak heights)
+/// Returns: Pyramid Landscape
+Landscape createLandscape(float width, float density, Distribution heightDistribution, bool testBurried = true) {
 	uint count = cast(uint)(width * width * density);
 	Vec!3[] peaks;
 	peaks.reserve(count);
@@ -393,9 +487,11 @@ Landscape createLandscape(float width, float density, Distribution heightDistrib
 		newPeak[1] = uniform!"()"(-width / 2, width / 2);
 		newPeak[2] = heights[i];
 
-		// Cull if burried
-		Hit hit = trace(peaks, Ray(newPeak, Vec!3(0, 0, 1)));
-		if (!hit.hit) {
+		if (testBurried) { // Cull if burried
+			Hit hit = trace(peaks, Ray(newPeak, Vec!3(0, 0, 1)));
+			if (!hit.hit)
+				peaks ~= newPeak;
+		} else {
 			peaks ~= newPeak;
 		}
 	}
@@ -417,14 +513,15 @@ struct Hit {
 }
 
 Hit trace(const Landscape land, Ray ray) {
-	Hit minHit;
-	foreach (id, Vec!3 peak; land) {
+	shared Hit minHit;
+	foreach (id, peak; parallel(land)) {
 		if (ray.exculdePeak == id)
 			continue;
 		Hit hit = trace(peak, ray);
-		if (hit.hit && (hit.t < minHit.t)) {
-			minHit = hit;
-			minHit.peakID = cast(uint) id;
+		if (hit.hit) {
+			hit.peakID = cast(uint) id;
+			synchronized if (hit.t < minHit.t)
+				minHit = cast(shared Hit) hit;
 		}
 	}
 	return minHit;
