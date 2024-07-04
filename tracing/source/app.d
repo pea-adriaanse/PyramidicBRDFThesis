@@ -1,6 +1,8 @@
 import math;
 import misc;
 import ply;
+import csv;
+
 import sphere_samplers;
 import std.algorithm.comparison : clamp;
 import std.algorithm.searching : canFind;
@@ -156,30 +158,116 @@ void main(string[] args) {
 		case "experiment":
 			return experiment();
 		case "generate":
-			write("landscape size: ");
-			float size = readln().strip().to!float;
-			enforce(size > 0, "Size cannot be negative.");
-			write("output file: ");
-			string fileName = readln().strip();
-			enforce(isValidFilename(fileName), "File name invalid.");
-			return generate(size, fileName);
+			return generate();
 		case "test":
 			return test_shadowing();
+		case "measure":
+			return measure_shadowing();
 		default:
 			return writeln("Choose:\n\t- experiment\n\t- generate\n\t- test");
 	}
 }
 
-void generate(bool splitTriangles = true)(float size, string fileName) {
+void measure_shadowing() {
+	Landscape land = generate_land();
+
+	// TODO: replace region with parallel input direction
+	writeln("Region:");
+	write("x_min: ");
+	float xMin = readln().strip().to!float;
+	write("x_max: ");
+	float xMax = readln().strip().to!float;
+
+	write("y_min: ");
+	float yMin = readln().strip().to!float;
+	write("y_max: ");
+	float yMax = readln().strip().to!float;
+
+	write("cam_x: ");
+	float camX = readln().strip().to!float;
+	write("cam_y: ");
+	float camY = readln().strip().to!float;
+	write("cam_z: ");
+	float camZ = readln().strip().to!float;
+	Vec!3 cam = Vec!3(camX, camY, camZ);
+
+	write("sample count: ");
+	uint sampleCount = readln().strip().to!uint;
+
+	write("reflect count: ");
+	uint reflectCount = readln().strip().to!uint;
+
+	Vec!2[] samples = new Vec!2[sampleCount];
+	foreach (i; 0 .. sampleCount) {
+		float x = uniform(xMin, xMax);
+		float y = uniform(yMin, yMax);
+		samples[i] = Vec!2(x, y);
+	}
+
+	// CSV csv = CSV(',', true, "exits", "reflectCount", "reflectID", "outDirX", "outDirY", "outDirZ");
+	CSV csv = CSV(',', true, "exitID", "count");
+	uint[uint] data;
+
+	foreach (i; 0 .. sampleCount) {
+		Vec!3 target = Vec!3(samples[i].x, samples[i].y, 0);
+		Vec!3 dir = (target - cam).normalize();
+		Ray ray = Ray(cam, dir);
+
+		ReflectData reflectData = reflectRecurse(land, ray, reflectCount);
+		data[reflectData.reflectID] += reflectData.exits;
+		// csv.addEntry(reflectData.exits, reflectData.reflectCount, reflectData.reflectID,
+		// 	reflectData.outDir.x, reflectData.outDir.y, reflectData.outDir.z);
+	}
+
+	foreach (d, v; data) {
+		csv.addEntry(d, v);
+	}
+
+	csv.save("results/measure_shadowing.csv");
+
+	foreach (d, v; data) {
+		writeln(reflectIDToString(d), ": ", v);
+	}
+}
+
+Landscape generate_land() {
+	write("landscape size (um): ");
+	float size = readln().strip().to!float;
+	enforce(size > 0, "Size cannot be negative.");
+	write("landscape scale (unit): ");
+	float scale = readln().strip().to!float;
+	enforce(scale > 0, "Scale cannot be negative.");
+
+	float scaling = scale / size; // units/micron
+	float error = 0.001;
+	float L = scaling * ceil(tan(shape.slope) * sqrt(-log(error) / (4.0 * _density))); // ceil optional
+	Distribution heightDistribution = new ConstantDistribution(L);
+	Landscape land = createLandscape(scaling * size, _density / (scaling ^^ 2), heightDistribution, false);
+	return land;
+}
+
+void generate(bool splitTriangles = true)() {
+	write("landscape size (um): ");
+	float size = readln().strip().to!float;
+	enforce(size > 0, "Size cannot be negative.");
+	write("landscape scale (unit): ");
+	float scale = readln().strip().to!float;
+	enforce(scale > 0, "Scale cannot be negative.");
+	write("output file: ");
+	string fileName = readln().strip();
+	enforce(isValidFilename(fileName), "File name invalid.");
+
 	import std.datetime.stopwatch;
+
+	float scaling = scale / size; // units/micron
 
 	StopWatch watch = StopWatch(AutoStart.yes);
 
 	float error = 0.001;
-	float L = ceil(tan(shape.slope) * sqrt(-log(error) / (4.0 * _density))); // ceil optional
+	float L = scaling * ceil(tan(shape.slope) * sqrt(-log(error) / (4.0 * _density))); // ceil optional
 
 	Distribution heightDistribution = new ConstantDistribution(L);
-	Landscape land = createLandscape(size, _density, heightDistribution, false);
+	Landscape land = createLandscape(scaling * size, _density / (scaling ^^ 2), heightDistribution, false);
 
 	Vec!3[5] shapeVertices = Vec!3(0, 0, 0) ~ shape.legs.dup;
 	shapeVertices[] = shapeVertices[] * (-L / shape.legs[0].z);
@@ -583,4 +671,78 @@ Hit tracePlane(Vec!3 point, Vec!3 normal, Ray ray) {
 	float t = distToPlane / slope;
 	Vec!3 pos = ray.org + ray.dir * t;
 	return Hit(true, pos, t);
+}
+
+/// Reflects dir using the normal.
+/// Params:
+///   dir = normalized in direction (pointing into the surface)
+///   normal = normalized normal
+/// Returns: normalized reflected direction
+Vec!3 reflect(Vec!3 dir, Vec!3 normal) {
+	return dir - (normal * (2 * dir.dot(normal)));
+}
+
+unittest {
+	Vec!3 dir = Vec!3(0.5, 0, -0.5).normalize();
+	Vec!3 normal = Vec!3(0, 0, 1);
+	Vec!3 reflected = reflect(dir, normal);
+	reflected.assertAlmostEq(Vec!3(0.5, 0, 0.5).normalize());
+}
+
+struct ReflectData {
+	bool exits;
+	Vec!3 outDir;
+	uint reflectCount;
+	uint reflectID; // gives what normals were hit. (E,N,W,S)=(0,1,2,3) tree id.
+}
+
+ReflectData reflectRecurse(Landscape land, Ray ray, uint reflectCount) {
+	uint reflectID = 0;
+	foreach (r; 0 .. reflectCount + 1) {
+		Hit hit = trace(land, ray);
+		if (!hit.hit) {
+			assert(r > 0);
+			return ReflectData(true, ray.dir, r, reflectID);
+		}
+		if (r > 0)
+			reflectID = 4 * (reflectID + 1) + hit.face;
+		else
+			reflectID = hit.face;
+		ray.dir = reflect(ray.dir, shape.normals[hit.face]);
+		ray.org = hit.pos;
+		ray.exculdePeak = hit.peakID;
+	}
+	return ReflectData(false, ray.dir, reflectCount);
+}
+
+unittest {
+	Landscape land = [Vec!3(-2, 0, 1), Vec!3(2, 0, 1)];
+	shape = PyramidShape(degreesToRadians(45.0));
+
+	Vec!3 org = Vec!3(-1, 0, 2);
+	Vec!3 dir = Vec!3(0, 0, -1);
+	Ray ray = Ray(org, dir);
+	ReflectData reflectData = reflectRecurse(land, ray, 2);
+	assert(reflectData.exits);
+	assert(reflectData.reflectCount == 2);
+	assert(reflectData.reflectID == 4 + 2);
+	reflectData.outDir.assertAlmostEq(Vec!3(0, 0, 1));
+}
+
+string reflectIDToString(uint reflectID) {
+	string reflectPath = "";
+	immutable char[4] faceNames = ['E', 'N', 'W', 'S'];
+
+	void addToPath() {
+		// inverse of: reflectID = 4 * (reflectID + 1) + hit.face;
+		uint face = reflectID % 4;
+		reflectPath ~= faceNames[face];
+	}
+
+	while (reflectID > 3) {
+		addToPath();
+		reflectID = (reflectID / 4) - 1;
+	}
+	addToPath();
+	return reflectPath;
 }
