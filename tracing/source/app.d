@@ -1,5 +1,5 @@
-import math;
-import misc;
+import vdmath;
+import vdmath.misc;
 import ply;
 import csv;
 
@@ -461,7 +461,7 @@ void measure(const Landscape land, SphereSampler sphereSampler, float maxHeight,
 			Ray ray = Ray(org, Vec!3(0, 0, -1));
 			hit = trace(land, ray);
 			assert(hit.hit);
-			org.assertAlmostEq(Vec!3(hit.pos.x, hit.pos.y, maxHeight + 1));
+			org.assertAlmostEquals(Vec!3(hit.pos.x, hit.pos.y, maxHeight + 1));
 			east = hit.face == 0;
 			pos = hit.pos;
 		}

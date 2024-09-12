@@ -1,6 +1,6 @@
 module sphere_samplers;
 
-import math.mat;
+import vdmath;
 import std.math : sqrt, PI, asin, sin, cos;
 import std.conv : to;
 import std.stdio : File;

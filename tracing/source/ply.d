@@ -1,5 +1,5 @@
 module ply;
-import math;
+import vdmath;
 import std.exception : enforce;
 import std.file;
 import std.path;

@@ -4,9 +4,7 @@
 	],
 	"copyright": "Copyright © 2024, Paul A.",
 	"dependencies": {
-		"vertexd:math": {
-			"path": "E:/Code/D/VertexD"
-		}
+		"vdmath": "~>1.0.0"
 	},
 	"description": "Tracing Tests",
 	"license": "proprietary",
