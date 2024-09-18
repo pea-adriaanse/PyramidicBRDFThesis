@@ -10,13 +10,14 @@ import std.algorithm.sorting : sort;
 import std.algorithm.sorting;
 import std.conv : to;
 import std.conv : to;
-import std.exception : enforce;
+import std.exception : enforce, ErrnoException;
 import std.math;
 import std.parallelism;
 import std.random;
 import std.stdio;
 import std.path;
 import std.string : strip;
+import std.file : exists;
 
 struct Face {
 	Vec!3[2] legs;
@@ -153,19 +154,112 @@ uint landWidthSampleCount = cast(uint)(5 * width);
 
 void main(string[] args) {
 	if (args.length <= 1)
-		return writeln("Choose:\n\t- experiment\n\t- generate\n\t- test");
+		return writeln("Choose:\n\t- reflectDist\n\t- experiment\n\t- generate\n\t- test");
 	switch (args[1]) {
-		case "experiment":
-			return experiment();
-		case "generate":
-			return generate();
-		case "test":
-			return test_shadowing();
-		case "measure":
-			return measure_shadowing();
-		default:
-			return writeln("Choose:\n\t- experiment\n\t- generate\n\t- test");
+	case "reflectDist":
+		return measureReflectPathDist(args[2 .. $]);
+	case "experiment":
+		return experiment();
+	case "generate":
+		return generate();
+	case "test":
+		return test_shadowing();
+	case "measure":
+		return measure_shadowing();
+	default:
+		return writeln("Choose:\n\t- reflectDist\n\t- experiment\n\t- generate\n\t- test");
 	}
+}
+
+uint pow4(uint exponent) {
+	return 1u << (2u * exponent);
+}
+
+uint pow4sum(uint exponent) {
+	return (4 * (pow4(exponent) - 1)) / 3; // Modified geometric series
+}
+
+unittest {
+	assert(pow4sum(0u) == 0);
+	assert(pow4sum(1u) == 4);
+	assert(pow4sum(2u) == 20);
+	assert(pow4sum(3u) == 84);
+	assert(pow4sum(4u) == 340);
+}
+
+void measureReflectPathDist(string[] args) {
+	float width = 500;
+	float error = 0.001;
+	float L = ceil(tan(shape.slope) * sqrt(-log(error) / (4.0 * _density))); // ceil optional
+	Distribution heightDistribution = new ConstantDistribution(L);
+	Landscape land = createLandscape(width, _density, heightDistribution, false);
+
+	Vec!3 wo;
+	uint sampleCount, reflectCount;
+	const argsError = "Expect 0 or 3 arguments: <wo binary file> <sample count> <reflect count>";
+	if (args.length == 3) {
+		enforce(exists(args[0]), "Could not find wo binary file " ~ argsError);
+		File bin;
+		try
+			bin = File(args[0], "rb");
+		catch (ErrnoException e)
+			assert(0, "Could not open wo binary file. " ~ argsError);
+		fread(wo.vec.ptr, float.sizeof, 3, bin.getFP());
+		bin.close();
+		sampleCount = args[1].to!uint;
+		reflectCount = args[2].to!uint;
+	} else {
+		enforce(args.length == 1, argsError);
+		write("wo.x: ");
+		wo.x = readln().strip().to!float;
+		write("wo.y: ");
+		wo.y = readln().strip().to!float;
+		write("wo.z: ");
+		wo.z = readln().strip().to!float;
+		write("sample count: ");
+		sampleCount = readln().strip().to!uint;
+		write("reflect count: ");
+		reflectCount = readln().strip().to!uint;
+	}
+	writeln("\nwo: ", wo.toString());
+	Vec!3 dir = -wo;
+
+	uint optionCount = pow4sum(reflectCount);
+	uint[] pathCounts = new uint[optionCount];
+	uint captureCount = 0;
+
+	Vec!2[] offsets = new Vec!2[sampleCount];
+	foreach (i; 0 .. sampleCount) {
+		float x = uniform(-width / 3.0, width / 3.0);
+		float y = uniform(-width / 3.0, width / 3.0);
+		offsets[i] = Vec!2(x, y);
+	}
+
+	CSV csv = CSV(',', false, "index", "indexStr", "count", "prob");
+
+	foreach (i; 0 .. sampleCount) {
+		writef("\rRaytracing: %u/%u", i, sampleCount);
+		float minHeight = L / -dir.z;
+
+		Vec!3 target = Vec!3(offsets[i].x, offsets[i].y, 0);
+		Vec!3 cam = (target - dir * 2 * minHeight);
+
+		Ray ray = Ray(cam, dir);
+		ReflectData reflectData = reflectRecurse(land, ray, reflectCount);
+
+		if (!reflectData.exits) {
+			captureCount += 1;
+			continue;
+		} else {
+			pathCounts[reflectData.reflectID] += 1;
+		}
+	}
+	writefln("\rRaytracing: %u/%u", sampleCount, sampleCount);
+
+	foreach (uint i; 0 .. optionCount) {
+		csv.addEntry(i, reflectIDToString(i), pathCounts[i], pathCounts[i].to!float / sampleCount);
+	}
+	csv.save("results/distSpecular.csv");
 }
 
 void measure_shadowing() {
@@ -224,10 +318,6 @@ void measure_shadowing() {
 	}
 
 	csv.save("results/measure_shadowing.csv");
-
-	foreach (d, v; data) {
-		writeln(reflectIDToString(d), ": ", v);
-	}
 }
 
 Landscape generate_land() {
@@ -241,6 +331,7 @@ Landscape generate_land() {
 	float scaling = scale / size; // units/micron
 	float error = 0.001;
 	float L = scaling * ceil(tan(shape.slope) * sqrt(-log(error) / (4.0 * _density))); // ceil optional
+	writeln("Height: ", L);
 	Distribution heightDistribution = new ConstantDistribution(L);
 	Landscape land = createLandscape(scaling * size, _density / (scaling ^^ 2), heightDistribution, false);
 	return land;
@@ -295,13 +386,18 @@ void generate(bool splitTriangles = true)() {
 
 		static if (splitTriangles) {
 			vertices[index * vertCount .. (index + 1) * vertCount] = [
-				pyramidVertices[0], pyramidVertices[1], pyramidVertices[2], pyramidVertices[0],
-				pyramidVertices[2], pyramidVertices[3], pyramidVertices[0], pyramidVertices[3],
-				pyramidVertices[4], pyramidVertices[0], pyramidVertices[4], pyramidVertices[1],
+				pyramidVertices[0], pyramidVertices[1], pyramidVertices[2],
+				pyramidVertices[0],
+				pyramidVertices[2], pyramidVertices[3], pyramidVertices[0],
+				pyramidVertices[3],
+				pyramidVertices[4], pyramidVertices[0], pyramidVertices[4],
+				pyramidVertices[1],
 			];
 			normals[index * vertCount .. (index + 1) * vertCount] = [
-				shape.normalN, shape.normalN, shape.normalN, shape.normalW, shape.normalW,
-				shape.normalW, shape.normalS, shape.normalS, shape.normalS, shape.normalE,
+				shape.normalN, shape.normalN, shape.normalN, shape.normalW,
+				shape.normalW,
+				shape.normalW, shape.normalS, shape.normalS, shape.normalS,
+				shape.normalE,
 				shape.normalE, shape.normalE
 			];
 		} else
@@ -477,7 +573,8 @@ void measure(const Landscape land, SphereSampler sphereSampler, float maxHeight,
 	// Bin sample heights
 	uint[] bins = new uint[heightBins];
 	foreach (p; samplePoss) {
-		uint heightBin = cast(uint) floor(heightBins * (p.z - minSampleHeight) / (maxSampleHeight - minSampleHeight));
+		uint heightBin = cast(uint) floor(
+			heightBins * (p.z - minSampleHeight) / (maxSampleHeight - minSampleHeight));
 		heightBin = clamp(heightBin, 0, heightBins - 1); // Floating error precaution
 		bins[heightBin] += 1;
 	}
@@ -493,7 +590,8 @@ void measure(const Landscape land, SphereSampler sphereSampler, float maxHeight,
 			Hit hit = trace(land, ray);
 
 			uint heightBin = cast(uint) floor(
-				heightBins * (samplePos.z - minSampleHeight) / (maxSampleHeight - minSampleHeight));
+				heightBins * (
+					samplePos.z - minSampleHeight) / (maxSampleHeight - minSampleHeight));
 			heightBin = clamp(heightBin, 0, heightBins - 1); // Floating error precaution
 			heightHits[heightBin][0] += 1;
 			hitsByHeight[heightBin * sphereSampleCount + sphereID][0] += 1;
@@ -631,7 +729,6 @@ unittest {
 	shape = PyramidShape(degreesToRadians(45.0));
 	Hit hit = trace(Vec!3(0, 0.25, 0), Ray(Vec!3(0, -1, 1), Vec!3(0, 0, -1)));
 	assert(hit.hit);
-	writeln(hit.pos);
 	assert(hit.pos == Vec!3(0, -1, -1.25));
 }
 
@@ -686,7 +783,7 @@ unittest {
 	Vec!3 dir = Vec!3(0.5, 0, -0.5).normalize();
 	Vec!3 normal = Vec!3(0, 0, 1);
 	Vec!3 reflected = reflect(dir, normal);
-	reflected.assertAlmostEq(Vec!3(0.5, 0, 0.5).normalize());
+	reflected.assertAlmostEquals(Vec!3(0.5, 0, 0.5).normalize());
 }
 
 struct ReflectData {
@@ -698,14 +795,14 @@ struct ReflectData {
 
 ReflectData reflectRecurse(Landscape land, Ray ray, uint reflectCount) {
 	uint reflectID = 0;
-	foreach (r; 0 .. reflectCount + 1) {
+	foreach (r; 0 .. reflectCount + 1) { //TODO: prefer not to use +1
 		Hit hit = trace(land, ray);
 		if (!hit.hit) {
 			assert(r > 0);
 			return ReflectData(true, ray.dir, r, reflectID);
 		}
 		if (r > 0)
-			reflectID = 4 * (reflectID + 1) + hit.face;
+			reflectID = 4 * reflectID + 4 + hit.face;
 		else
 			reflectID = hit.face;
 		ray.dir = reflect(ray.dir, shape.normals[hit.face]);
@@ -726,23 +823,25 @@ unittest {
 	assert(reflectData.exits);
 	assert(reflectData.reflectCount == 2);
 	assert(reflectData.reflectID == 4 + 2);
-	reflectData.outDir.assertAlmostEq(Vec!3(0, 0, 1));
+	reflectData.outDir.assertAlmostEquals(Vec!3(0, 0, 1));
 }
 
 string reflectIDToString(uint reflectID) {
 	string reflectPath = "";
 	immutable char[4] faceNames = ['E', 'N', 'W', 'S'];
 
-	void addToPath() {
-		// inverse of: reflectID = 4 * (reflectID + 1) + hit.face;
-		uint face = reflectID % 4;
-		reflectPath ~= faceNames[face];
-	}
-
-	while (reflectID > 3) {
-		addToPath();
+	while (true) {
+		reflectPath = faceNames[reflectID % 4] ~ reflectPath;
+		if (reflectID < 4)
+			break;
 		reflectID = (reflectID / 4) - 1;
 	}
-	addToPath();
 	return reflectPath;
+}
+
+unittest {
+	string str1 = reflectIDToString(0);
+	assert(str1 == "E");
+	string str2 = reflectIDToString(70);
+	assert(str2 == "SEW");
 }
