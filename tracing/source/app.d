@@ -19,6 +19,7 @@ import std.random;
 import std.stdio;
 import std.string : strip;
 import std.typecons : Nullable;
+import std.datetime.stopwatch;
 
 struct Face {
 	Vec!3[2] legs;
@@ -213,6 +214,9 @@ uint heightBins = 10;
 uint landWidthSampleCount = cast(uint)(5 * width);
 
 void main(string[] args) {
+	StopWatch stopwatch = StopWatch(AutoStart.yes);
+	scope (exit)
+		writeln("Finished in ", stopwatch.peek().total!"msecs"(), "milliseconds");
 	if (args.length <= 1)
 		return writeln("Choose:\n\t- reflectDist\n\t- experiment\n\t- generate\n\t- test");
 	switch (args[1]) {
