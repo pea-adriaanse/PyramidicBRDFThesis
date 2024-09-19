@@ -1,2 +1,6 @@
 .vscode/
+!.vscode/launch.json
 D/
+ldc2-1.39.0-windows-x64/
+*.csv
+*.ply
