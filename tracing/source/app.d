@@ -11,13 +11,14 @@ import std.algorithm.sorting;
 import std.conv : to;
 import std.conv : to;
 import std.exception : enforce, ErrnoException;
+import std.file : exists;
 import std.math;
 import std.parallelism;
+import std.path;
 import std.random;
 import std.stdio;
-import std.path;
 import std.string : strip;
-import std.file : exists;
+import std.typecons : Nullable;
 
 struct Face {
 	Vec!3[2] legs;
@@ -88,7 +89,66 @@ struct PyramidShape {
 	}
 }
 
-alias Landscape = Vec!3[];
+struct Landscape {
+	Vec!3[] peaks;
+	Vec!3 minBound, maxBound;
+	float roof;
+	bool useBins = false;
+
+	uint binCount;
+	Vec!3[][] bins;
+	Vec!2 binWidth;
+
+	this(Vec!3[] peaks) {
+		this.peaks = peaks;
+	}
+
+	Nullable!(Vec!(2, uint)) getBin(Vec!3 pos) const {
+		Nullable!(Vec!(2, uint)) ret;
+		static foreach (i; 0 .. 3)
+			if (pos[i] < minBound[i] || pos[i] > maxBound[i])
+				return ret; // null
+		Vec!3 local = pos - minBound;
+		uint binX = clamp(cast(uint) floor(local.x / binWidth.x), 0, binCount - 1);
+		uint binY = clamp(cast(uint) floor(local.y / binWidth.y), 0, binCount - 1);
+		ret = Vec!(2, uint)(binX, binY);
+		return ret;
+	}
+
+	uint binIndex(uint x, uint y) const {
+		return y * binCount + x;
+	}
+
+	const(Vec!3[]) getBin(uint x, uint y) const {
+		assert(x < binCount && y < binCount);
+		return bins[binIndex(x, y)];
+	}
+
+	void createBins(Vec!3 minBound, Vec!3 maxBound, uint binCount) {
+		this.minBound = minBound;
+		this.maxBound = maxBound;
+		this.useBins = true;
+		this.binCount = binCount;
+		this.bins = new Vec!3[][binCount ^^ 2];
+
+		float binXWidth = (maxBound.x - minBound.x) / binCount;
+		float binYWidth = (maxBound.y - minBound.y) / binCount;
+		this.binWidth = Vec!2(binXWidth, binYWidth);
+		float cot_slope = shape.cot_slope;
+
+		foreach (Vec!3 peak; peaks) {
+			Vec!3 local = peak - minBound;
+			float baseWidth = local.z * cot_slope;
+			uint minXBin = clamp(cast(uint) floor((local.x - baseWidth) / binWidth.x), 0, binCount - 1);
+			uint maxXBin = clamp(cast(uint) floor((local.x + baseWidth) / binWidth.x), 0, binCount - 1);
+			uint minYBin = clamp(cast(uint) floor((local.y - baseWidth) / binWidth.y), 0, binCount - 1);
+			uint maxYBin = clamp(cast(uint) floor((local.y + baseWidth) / binWidth.y), 0, binCount - 1);
+			for (uint x = minXBin; x <= maxXBin; x++)
+				for (uint y = minYBin; y <= maxYBin; y++)
+					this.bins[binIndex(x, y)] ~= peak;
+		}
+	}
+}
 
 string toStr(float f) {
 	return to!string(f);
@@ -193,10 +253,12 @@ void measureReflectPathDist(string[] args) {
 	float L = ceil(tan(shape.slope) * sqrt(-log(error) / (4.0 * _density))); // ceil optional
 	Distribution heightDistribution = new ConstantDistribution(L);
 	Landscape land = createLandscape(width, _density, heightDistribution, false);
+	land.createBins(Vec!3(-width - L, -width - L, -L - 1), Vec!3(width + L, width + L, L + 1), 10);
 
 	Vec!3 wo;
 	uint sampleCount, reflectCount;
-	const argsError = "Expect 0 or 3 arguments: <wo binary file> <sample count> <reflect count>";
+	const argsError = "Expect 0 or 3 arguments: <wo binary file> <sample count> <reflect count> but got: " ~ args
+		.to!string;
 	if (args.length == 3) {
 		enforce(exists(args[0]), "Could not find wo binary file " ~ argsError);
 		File bin;
@@ -209,7 +271,7 @@ void measureReflectPathDist(string[] args) {
 		sampleCount = args[1].to!uint;
 		reflectCount = args[2].to!uint;
 	} else {
-		enforce(args.length == 1, argsError);
+		enforce(args.length == 0, argsError);
 		write("wo.x: ");
 		wo.x = readln().strip().to!float;
 		write("wo.y: ");
@@ -238,8 +300,8 @@ void measureReflectPathDist(string[] args) {
 	CSV csv = CSV(',', false, "index", "indexStr", "count", "prob");
 
 	foreach (i; 0 .. sampleCount) {
-		writef("\rRaytracing: %u/%u", i, sampleCount);
-		float minHeight = L / -dir.z;
+		debug writef("\rRaytracing: %u/%u", i, sampleCount);
+		float minHeight = L / abs(dir.z);
 
 		Vec!3 target = Vec!3(offsets[i].x, offsets[i].y, 0);
 		Vec!3 cam = (target - dir * 2 * minHeight);
@@ -254,7 +316,7 @@ void measureReflectPathDist(string[] args) {
 			pathCounts[reflectData.reflectID] += 1;
 		}
 	}
-	writefln("\rRaytracing: %u/%u", sampleCount, sampleCount);
+	debug writefln("\rRaytracing: %u/%u", sampleCount, sampleCount);
 
 	foreach (uint i; 0 .. optionCount) {
 		csv.addEntry(i, reflectIDToString(i), pathCounts[i], pathCounts[i].to!float / sampleCount);
@@ -370,15 +432,15 @@ void generate(bool splitTriangles = true)() {
 
 	enum vertCount = splitTriangles ? 12 : 5;
 	__gshared Vec!3[] vertices;
-	vertices = new Vec!3[land.length * vertCount];
+	vertices = new Vec!3[land.peaks.length * vertCount];
 	__gshared uint[3][] faces;
-	faces = new uint[3][land.length * 4];
+	faces = new uint[3][land.peaks.length * 4];
 	static if (splitTriangles) {
 		__gshared Vec!3[] normals;
 		normals = new Vec!3[vertices.length];
 	}
 
-	foreach (index, Vec!3 peak; parallel(land)) {
+	foreach (index, Vec!3 peak; parallel(land.peaks)) {
 		Vec!3[5] pyramidVertices = shapeVertices;
 		// pyramidVertices[] = pyramidVertices[] + peak; // Compiler bug'
 		foreach (ref v; pyramidVertices)
@@ -574,7 +636,8 @@ void measure(const Landscape land, SphereSampler sphereSampler, float maxHeight,
 	uint[] bins = new uint[heightBins];
 	foreach (p; samplePoss) {
 		uint heightBin = cast(uint) floor(
-			heightBins * (p.z - minSampleHeight) / (maxSampleHeight - minSampleHeight));
+			heightBins * (
+				p.z - minSampleHeight) / (maxSampleHeight - minSampleHeight));
 		heightBin = clamp(heightBin, 0, heightBins - 1); // Floating error precaution
 		bins[heightBin] += 1;
 	}
@@ -637,7 +700,8 @@ void measure(const Landscape land, SphereSampler sphereSampler, float maxHeight,
 
 	File sampleHeightsFile = File(outHeightDistributionFile, "w");
 	sampleHeightsFile.writeln(
-		"count,minHeight=" ~ minSampleHeight.to!string ~ ",maxHeight=" ~ maxSampleHeight.to!string);
+		"count,minHeight=" ~ minSampleHeight.to!string ~ ",maxHeight=" ~ maxSampleHeight
+			.to!string);
 	foreach (i, b; bins) {
 		// if (i == 0) {
 		// 	sampleHeightsFile.writeln(p.z.to!string, ",", minSampleHeight.to!string, ",", maxSampleHeight.to!string);
@@ -681,7 +745,7 @@ Landscape createLandscape(float width, float density, Distribution heightDistrib
 			peaks ~= newPeak;
 		}
 	}
-	return peaks;
+	return Landscape(peaks);
 }
 
 struct Ray {
@@ -698,9 +762,9 @@ struct Hit {
 	ubyte face;
 }
 
-Hit trace(const Landscape land, Ray ray) {
+Hit trace(const Vec!3[] peaks, Ray ray) {
 	shared Hit minHit;
-	foreach (id, peak; parallel(land)) {
+	foreach (id, peak; parallel(peaks)) {
 		if (ray.exculdePeak == id)
 			continue;
 		Hit hit = trace(peak, ray);
@@ -711,6 +775,128 @@ Hit trace(const Landscape land, Ray ray) {
 		}
 	}
 	return minHit;
+}
+
+bool findNextBin(const Landscape land, ref Ray ray, ref Nullable!(Vec!(2, uint)) currentBin) {
+	assert(land.useBins);
+	if (currentBin.isNull) {
+		if (ray.org.z > land.maxBound.z) { // Outside z bounds, trace to roof
+			if (ray.dir.z > 0)
+				return false;
+			Hit hit = tracePlane(land.maxBound, Vec!3(0, 0, 1), ray);
+			assert(hit.hit);
+			ray.org = hit.pos;
+			currentBin = land.getBin(ray.org);
+			assert(!currentBin.isNull);
+			return true;
+		} else if (ray.org.z < land.minBound.z) { // Outside z bounds, trace to floor
+			if (ray.dir.z < 0)
+				return false;
+			Hit hit = tracePlane(land.minBound, Vec!3(0, 0, -1), ray);
+			assert(hit.hit);
+			ray.org = hit.pos;
+			currentBin = land.getBin(ray.org);
+			assert(!currentBin.isNull);
+			return true;
+		} else { // Initialize current bin
+			currentBin = land.getBin(ray.org);
+			assert(!currentBin.isNull);
+			return true;
+		}
+	} else {
+		Hit[2] hits;
+		foreach (ubyte axis; 0 .. 2) { // Calculate distances to potential next bins walls
+			if (ray.dir[axis] == 0) {
+				hits[axis] = Hit();
+			} else {
+				float offset = land.binWidth[axis] * (currentBin.get()[axis] + (ray.dir[axis] > 0 ? 1
+						: 0));
+				Vec!3 point = land.minBound;
+				point[axis] += offset;
+				Vec!3 normal = Vec!3(0);
+				normal[axis] = (ray.dir[axis] > 0) ? -1 : 1;
+				hits[axis] = tracePlane(point, normal, ray);
+				assert(hits[axis].hit);
+				assert(hits[axis].t > 0);
+			}
+		}
+		// Choose closest bin
+		if (hits[0].t == hits[1].t) { // perfect slanted progression, should (almost) never happen
+			if (hits[0].t == float.infinity)
+				return false;
+			currentBin.get()[0] += ((ray.dir[0] > 0) ? 1 : -1);
+			currentBin.get()[1] += ((ray.dir[1] > 0) ? 1 : -1);
+			ray.org = hits[0].pos;
+		} else {
+			ubyte minAxis = (hits[1].t > hits[0].t) ? 0 : 1;
+			currentBin.get()[minAxis] += (ray.dir[minAxis] > 0) ? 1 : -1; // increment/decrement bin
+			ray.org = hits[minAxis].pos;
+		}
+		// Check if next bin exits bounds
+		// Note unsigned int underflow (< 0) wraps around to > binCount.
+		if (currentBin.get()[0] >= land.binCount || currentBin.get()[1] >= land.binCount)
+			return false;
+		return true;
+	}
+}
+
+unittest {
+	Landscape land = Landscape([]);
+	land.createBins(Vec!3(-1), Vec!3(1), 2);
+	Nullable!(Vec!(2, uint)) bin;
+
+	// From outside
+	Ray ray = Ray(Vec!3(0.5, 0.5, 2), Vec!3(0, 0, -1));
+	bool found = findNextBin(land, ray, bin);
+	assert(found);
+	assert(ray.org == Vec!3(0.5, 0.5, 1));
+	assert(bin.get() == [1, 1]);
+	// Exit
+	found = findNextBin(land, ray, bin);
+	assert(!found);
+
+	// From inside
+	bin = bin.init;
+	ray = Ray(Vec!3(0.5, 0.5, 0.5), Vec!3(0, 0, -1));
+	found = findNextBin(land, ray, bin);
+	assert(found);
+	assert(ray.org == Vec!3(0.5, 0.5, 0.5));
+	assert(bin.get() == [1, 1]);
+
+	// Go through
+	bin = bin.init;
+	Vec!3 start = Vec!3(-0.5, -0.25, -1);
+	Vec!3 stop = Vec!3(0.5, 1.0, 0.5);
+	Vec!3 dir = (stop - start).normalize();
+	ray = Ray(start - dir, dir);
+	found = findNextBin(land, ray, bin);
+	assert(found);
+	assert(ray.org.almostEquals(start));
+	assert(bin.get() == [0, 0]);
+	found = findNextBin(land, ray, bin);
+	assert(found);
+	assert(bin.get() == [0, 1]);
+	found = findNextBin(land, ray, bin);
+	assert(found);
+	assert(bin.get() == [1, 1]);
+	found = findNextBin(land, ray, bin);
+	assert(!found);
+	assert(ray.org.almostEquals(stop));
+}
+
+Hit trace(const Landscape land, Ray ray) {
+	if (!land.useBins) {
+		return trace(land.peaks, ray);
+	} else {
+		Nullable!(Vec!(2, uint)) currentBin;
+		while (findNextBin(land, ray, currentBin)) {
+			const Vec!3[] peaks = land.getBin(currentBin.get().x, currentBin.get().y);
+			Hit hit = trace(peaks, ray);
+			if (hit.hit)
+				return hit;
+		}
+		return Hit();
+	}
 }
 
 Hit trace(Vec!3 peak, Ray ray) {
