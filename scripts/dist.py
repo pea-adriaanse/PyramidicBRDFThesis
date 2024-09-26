@@ -1,5 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
+import sys
 
 def readCSVProbs(name, probIndex):
     probs = []
@@ -33,16 +35,30 @@ def readCSVProbs(name, probIndex):
             probs.append(float(column[probIndex]))
     return (reflectIndex, reflectIndexStr, probs)
 
-reflectIndex, reflectIndexStr, dist = readCSVProbs("../iridescence/dist.csv", 2)
-reflectIndexSpecular, _, distSpecular = readCSVProbs("../tracing/results/distSpecular.csv", 3)
+if len(sys.argv) != 3:
+    raise ValueError("Need 2 runtime arguments: identifier sampleCount")
+identifier = sys.argv[1]
+sampleCount = sys.argv[2]
 
+reflectIndexP, reflectIndexStrP, distP = readCSVProbs("./temp/dist_"+identifier+"_P.csv", 2)
+# reflectIndexL, reflectIndexStrL, distL = readCSVProbs("../iridescence/distLyanne.csv", 2)
+reflectIndexSpecular, reflectIndexStrSpecular, distSpecular = readCSVProbs("./temp/dist_"+identifier+"_S.csv", 3)
+
+plt.figure(figsize=(19.20,9.83))
 ax = plt.subplot()
-plt.bar(reflectIndex, dist, 0.35, align="edge", label="BRDF");
-plt.bar(reflectIndexSpecular, distSpecular, -0.35, align="edge", label="Mesh");
-plt.xticks(reflectIndex, rotation=90)
-ax.set_xticklabels(reflectIndexStr)
+plt.bar(reflectIndexP, distP, 0.25, align="edge", label="BRDF_Paul", zorder=2)
+# plt.bar(reflectIndexL, distL, 0.25, align="edge", label="BRDF_Lyanne");
+plt.bar(reflectIndexSpecular, distSpecular, -0.25, align="edge", label="Mesh"+"("+sampleCount+"samples)")
+plt.xticks(reflectIndexSpecular, rotation=90)
+ax.set_xticklabels(reflectIndexStrSpecular)
 plt.legend()
-plt.title("Exit Probability Distribution");
+plt.title("Exit Probability Distribution ("+identifier+")")
 plt.xlabel("Reflect Path")
 plt.ylabel("Probability")
-plt.show()
+# plt.show()
+
+fileName = "./images/dist_"+identifier+"_S"+str(sampleCount)+".png"
+filePath = Path(fileName)
+filePath.parent.mkdir(exist_ok=True, parents=False) # Ensure folder exists
+
+plt.savefig(fileName, bbox_inches="tight", dpi=150)

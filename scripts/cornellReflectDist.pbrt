@@ -14,9 +14,11 @@ MakeNamedMaterial "CustomMat"
   "string type" [ "pyramid" ]
     "float peakHeight" 1.0
     "float angle" 54.7
-    "bool shadowPaul" true
-    "integer reflectCount" <reflectCount>
+    "bool shadowPaul" <USE_PAUL>
+    "integer reflectCount" <REFLECT_COUNT>
     "string setting" "printDist"
+    "vector3 wo" <WO_VECTOR>
+    "string distOutFile" <DIST_OUTPUT_FILE>
 
 AttributeBegin
   AreaLightSource "diffuse" "rgb L" [1 1 1] "float scale" 10

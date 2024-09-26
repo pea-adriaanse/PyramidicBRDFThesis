@@ -252,28 +252,28 @@ unittest {
 }
 
 void measureReflectPathDist(string[] args) {
-	float width = 500;
+	rndGen().seed(0);
+
+	float width = 1000;
 	float error = 0.001;
+	const uint binCount = 25;
 	float L = ceil(tan(shape.slope) * sqrt(-log(error) / (4.0 * _density))); // ceil optional
 	Distribution heightDistribution = new ConstantDistribution(L);
 	Landscape land = createLandscape(width, _density, heightDistribution, false);
-	land.createBins(Vec!3(-width - L, -width - L, -L - 1), Vec!3(width + L, width + L, L + 1), 10);
+	land.createBins(Vec!3(-width - L, -width - L, -L - 1), Vec!3(width + L, width + L, L + 1), binCount);
 
 	Vec!3 wo;
 	uint sampleCount, reflectCount;
-	const argsError = "Expect 0 or 3 arguments: <wo binary file> <sample count> <reflect count> but got: " ~ args
+	string identifier;
+	const argsError = "Expect 0 or 6 arguments: (wo.x wo.y wo.z sampleCount reflectCount identifier) but got: " ~ args
 		.to!string;
-	if (args.length == 3) {
-		enforce(exists(args[0]), "Could not find wo binary file " ~ argsError);
-		File bin;
-		try
-			bin = File(args[0], "rb");
-		catch (ErrnoException e)
-			assert(0, "Could not open wo binary file. " ~ argsError);
-		fread(wo.vec.ptr, float.sizeof, 3, bin.getFP());
-		bin.close();
-		sampleCount = args[1].to!uint;
-		reflectCount = args[2].to!uint;
+	if (args.length == 6) {
+		wo.x = args[0].to!float;
+		wo.y = args[1].to!float;
+		wo.z = args[2].to!float;
+		sampleCount = args[3].to!uint;
+		reflectCount = args[4].to!uint;
+		identifier = args[5];
 	} else {
 		enforce(args.length == 0, argsError);
 		write("wo.x: ");
@@ -286,6 +286,8 @@ void measureReflectPathDist(string[] args) {
 		sampleCount = readln().strip().to!uint;
 		write("reflect count: ");
 		reflectCount = readln().strip().to!uint;
+		write("output file identifier: ");
+		identifier = readln().strip();
 	}
 	writeln("\nwo: ", wo.toString());
 	Vec!3 dir = -wo;
@@ -325,7 +327,7 @@ void measureReflectPathDist(string[] args) {
 	foreach (uint i; 0 .. optionCount) {
 		csv.addEntry(i, reflectIDToString(i), pathCounts[i], pathCounts[i].to!float / sampleCount);
 	}
-	csv.save("results/distSpecular.csv");
+	csv.save("../scripts/temp/dist_" ~ identifier ~ "_S.csv");
 }
 
 void measure_shadowing() {

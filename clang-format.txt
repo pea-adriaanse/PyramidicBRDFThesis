@@ -1,0 +1,7 @@
+---
+BasedOnStyle: Chromium
+AccessModifierOffset: 0
+ColumnLimit: 100
+IndentWidth: 4
+TabWidth: 4
+UseTab: Always
