@@ -259,7 +259,7 @@ void measureReflectPathDist(string[] args) {
 	const uint binCount = 25;
 	float L = ceil(tan(shape.slope) * sqrt(-log(error) / (4.0 * _density))); // ceil optional
 	Distribution heightDistribution = new ConstantDistribution(L);
-	Landscape land = createLandscape(width, _density, heightDistribution, false);
+	Landscape land = createLandscape(width, _density, heightDistribution, false, true);
 	land.createBins(Vec!3(-width - L, -width - L, -L - 1), Vec!3(width + L, width + L, L + 1), binCount);
 
 	Vec!3 wo;
@@ -426,7 +426,7 @@ void generate(bool splitTriangles = true)() {
 	float L = scaling * ceil(tan(shape.slope) * sqrt(-log(error) / (4.0 * _density))); // ceil optional
 
 	Distribution heightDistribution = new ConstantDistribution(L);
-	Landscape land = createLandscape(scaling * size, _density / (scaling ^^ 2), heightDistribution, false);
+	Landscape land = createLandscape(scaling * size, _density / (scaling ^^ 2), heightDistribution, false, true);
 
 	Vec!3[5] shapeVertices = Vec!3(0, 0, 0) ~ shape.legs.dup;
 	shapeVertices[] = shapeVertices[] * (-L / shape.legs[0].z);
@@ -723,8 +723,11 @@ void measure(const Landscape land, SphereSampler sphereSampler, float maxHeight,
 ///   heightDistribution = Distribution of pyramid peak heights
 ///   testBurried = test if peaks are burried under surface & cull. (Not necessary at constant peak heights)
 /// Returns: Pyramid Landscape
-Landscape createLandscape(float width, float density, Distribution heightDistribution, bool testBurried = true) {
+Landscape createLandscape(float width, float density, Distribution heightDistribution, bool testBurried = true, bool grid = false) {
 	uint count = cast(uint)(width * width * density);
+	if (grid)
+		count = (cast(uint) sqrt(width * width * density)) ^^ 2;
+
 	Vec!3[] peaks;
 	peaks.reserve(count);
 
@@ -736,19 +739,30 @@ Landscape createLandscape(float width, float density, Distribution heightDistrib
 	// Sort to place largest first.
 	sort!"a>b"(heights);
 
-	while (peaks.length < count) {
-		uint i = cast(uint) peaks.length;
-		Vec!3 newPeak;
-		newPeak[0] = uniform!"()"(-width / 2, width / 2);
-		newPeak[1] = uniform!"()"(-width / 2, width / 2);
-		newPeak[2] = heights[i];
+	if (grid) {
+		uint root = cast(uint) sqrt(cast(float) count);
+		float step = width / root;
+		foreach (x; 0 .. root) {
+			foreach (y; 0 .. root) {
+				uint index = x * root + y;
+				peaks ~= Vec!3(x * step, y * step, heights[index]);
+			}
+		}
+	} else {
+		while (peaks.length < count) {
+			uint i = cast(uint) peaks.length;
+			Vec!3 newPeak;
+			newPeak[0] = uniform!"()"(-width / 2, width / 2);
+			newPeak[1] = uniform!"()"(-width / 2, width / 2);
+			newPeak[2] = heights[i];
 
-		if (testBurried) { // Cull if burried
-			Hit hit = trace(peaks, Ray(newPeak, Vec!3(0, 0, 1)));
-			if (!hit.hit)
+			if (testBurried) { // Cull if burried
+				Hit hit = trace(peaks, Ray(newPeak, Vec!3(0, 0, 1)));
+				if (!hit.hit)
+					peaks ~= newPeak;
+			} else {
 				peaks ~= newPeak;
-		} else {
-			peaks ~= newPeak;
+			}
 		}
 	}
 	return Landscape(peaks);
