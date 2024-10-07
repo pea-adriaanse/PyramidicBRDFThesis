@@ -21,182 +21,13 @@ import std.string : strip;
 import std.typecons : Nullable;
 import std.datetime.stopwatch;
 
-struct Face {
-	Vec!3[2] legs;
-	Vec!3 normal;
-}
+import landscape;
+import pyramid_shape;
+import ply;
+import distribution;
 
-struct PyramidShape {
-	float slope;
-	float cot_slope;
-
-	union {
-		struct {
-			Vec!3 NE;
-			Vec!3 NW;
-			Vec!3 SW;
-			Vec!3 SE;
-		}
-
-		Vec!3[4] legs;
-	}
-
-	union {
-		struct {
-			Vec!3 normalE;
-			Vec!3 normalN;
-			Vec!3 normalW;
-			Vec!3 normalS;
-		}
-
-		Vec!3[4] normals;
-	}
-
-	union {
-		struct {
-			Face E;
-			Face N;
-			Face W;
-			Face S;
-		}
-
-		Face[4] faces;
-	}
-
-	this(double slope) {
-		this.slope = cast(float) slope;
-		double cot = 1.0 / tan(slope);
-		this.cot_slope = cast(float) cot;
-
-		Vec!(3, double) leg = (Vec!(3, double)(cot, cot, -1)).normalize!double();
-		this.NE = cast(Vec!3) leg;
-		this.NW = [-leg[0], leg[0], leg[2]];
-		this.SW = [-leg[0], -leg[0], leg[2]];
-		this.SE = [leg[0], -leg[0], leg[2]];
-
-		// this.legAngleCos = cos(2 * atan(cos(slope))); // == 2/(cos²(slope)+1)-1
-
-		double normalZ = cos(slope);
-		double normalX = sin(slope);
-		this.normalE = Vec!3(normalX, 0, normalZ);
-		this.normalN = Vec!3(0, normalX, normalZ);
-		this.normalW = Vec!3(-normalX, 0, normalZ);
-		this.normalS = Vec!3(0, -normalX, normalZ);
-
-		this.E = Face([SE, NE], normalE);
-		this.N = Face([NE, NW], normalN);
-		this.W = Face([NW, SW], normalW);
-		this.S = Face([SW, SE], normalS);
-	}
-}
-
-struct Landscape {
-	Vec!3[] peaks;
-	Vec!3 minBound, maxBound;
-	float roof;
-	bool useBins = false;
-
-	uint binCount;
-	Vec!3[][] bins;
-	Vec!2 binWidth;
-
-	this(Vec!3[] peaks) {
-		this.peaks = peaks;
-	}
-
-	Nullable!(Vec!(2, uint)) getBin(Vec!3 pos) const {
-		Nullable!(Vec!(2, uint)) ret;
-		static foreach (i; 0 .. 3)
-			if (pos[i] < minBound[i] || pos[i] > maxBound[i])
-				return ret; // null
-		Vec!3 local = pos - minBound;
-		uint binX = clamp(cast(uint) floor(local.x / binWidth.x), 0, binCount - 1);
-		uint binY = clamp(cast(uint) floor(local.y / binWidth.y), 0, binCount - 1);
-		ret = Vec!(2, uint)(binX, binY);
-		return ret;
-	}
-
-	uint binIndex(uint x, uint y) const {
-		return y * binCount + x;
-	}
-
-	const(Vec!3[]) getBin(uint x, uint y) const {
-		assert(x < binCount && y < binCount);
-		return bins[binIndex(x, y)];
-	}
-
-	void createBins(Vec!3 minBound, Vec!3 maxBound, uint binCount) {
-		this.minBound = minBound;
-		this.maxBound = maxBound;
-		this.useBins = true;
-		this.binCount = binCount;
-		this.bins = new Vec!3[][binCount ^^ 2];
-
-		float binXWidth = (maxBound.x - minBound.x) / binCount;
-		float binYWidth = (maxBound.y - minBound.y) / binCount;
-		this.binWidth = Vec!2(binXWidth, binYWidth);
-		float cot_slope = shape.cot_slope;
-
-		foreach (Vec!3 peak; peaks) {
-			Vec!3 local = peak - minBound;
-			float baseWidth = local.z * cot_slope;
-			uint minXBin = clamp(cast(uint) floor((local.x - baseWidth) / binWidth.x), 0, binCount - 1);
-			uint maxXBin = clamp(cast(uint) floor((local.x + baseWidth) / binWidth.x), 0, binCount - 1);
-			uint minYBin = clamp(cast(uint) floor((local.y - baseWidth) / binWidth.y), 0, binCount - 1);
-			uint maxYBin = clamp(cast(uint) floor((local.y + baseWidth) / binWidth.y), 0, binCount - 1);
-			for (uint x = minXBin; x <= maxXBin; x++)
-				for (uint y = minYBin; y <= maxYBin; y++)
-					this.bins[binIndex(x, y)] ~= peak;
-		}
-	}
-}
-
-string toStr(float f) {
-	return to!string(f);
-}
-
-interface Distribution {
-	float sample();
-}
-
-class ConstantDistribution : Distribution {
-	float height;
-	this(float height) {
-		this.height = height;
-	}
-
-	float sample() {
-		return this.height;
-	}
-}
-
-/// Models distribution using histogram
-class HistogramDistribution : Distribution {
-	float[] cdf = [];
-	float rangeSize; // relates #buckets to range.
-	float bucketSize;
-
-	this(string file, float rangeSize) {
-		this.rangeSize = rangeSize;
-		foreach (char[] l; File(file).byLine()) {
-			this.cdf ~= l.to!float;
-		}
-		this.bucketSize = rangeSize / cdf.length;
-	}
-
-	float sample() {
-		float prob = uniform01();
-		foreach_reverse (bucket, cumulativeProb; cdf) {
-			if (cumulativeProb <= prob) {
-				return (bucket + 1) * bucketSize;
-			}
-		}
-		assert(0);
-	}
-}
-
-PyramidShape shape = PyramidShape(degreesToRadians(_slope));
-enum _slope = 54.7;
+immutable PyramidShape shape = PyramidShape(degreesToRadians(_slope));
+enum _slope = 45.0; //54.7;
 enum _width = 20.0; //? in micron
 enum float width = 40; // used
 enum _density = 0.6; //? per micron²
@@ -254,13 +85,16 @@ unittest {
 void measureReflectPathDist(string[] args) {
 	rndGen().seed(0);
 
-	float width = 1000;
+	float width = 20;
 	float error = 0.001;
 	const uint binCount = 25;
 	float L = ceil(tan(shape.slope) * sqrt(-log(error) / (4.0 * _density))); // ceil optional
 	Distribution heightDistribution = new ConstantDistribution(L);
-	Landscape land = createLandscape(width, _density, heightDistribution, false, true);
+	Vec!3[] peaks = createPeaks(width, _density, heightDistribution);
+	Landscape land = Landscape(peaks, &shape);
 	land.createBins(Vec!3(-width - L, -width - L, -L - 1), Vec!3(width + L, width + L, L + 1), binCount);
+
+	land.save("reflectDist.ply", L);
 
 	Vec!3 wo;
 	uint sampleCount, reflectCount;
@@ -296,11 +130,28 @@ void measureReflectPathDist(string[] args) {
 	uint[] pathCounts = new uint[optionCount];
 	uint captureCount = 0;
 
-	Vec!2[] offsets = new Vec!2[sampleCount];
-	foreach (i; 0 .. sampleCount) {
-		float x = uniform(-width / 3.0, width / 3.0);
-		float y = uniform(-width / 3.0, width / 3.0);
-		offsets[i] = Vec!2(x, y);
+	Vec!2[] offsets;
+
+	if (sampleGrid) {
+		uint root = sampleCount;
+		sampleCount = sampleCount ^^ 2;
+
+		offsets = new Vec!2[sampleCount];
+
+		float step = width / root;
+		foreach (x; 0 .. root) {
+			foreach (y; 0 .. root) {
+				uint index = x * root + y;
+				offsets[index] = Vec!2(x * step - width / 2.0, y * step - width / 2.0);
+			}
+		}
+	} else {
+		offsets = new Vec!2[sampleCount];
+		foreach (i; 0 .. sampleCount) {
+			float x = uniform(-width / 3.0, width / 3.0);
+			float y = uniform(-width / 3.0, width / 3.0);
+			offsets[i] = Vec!2(x, y);
+		}
 	}
 
 	CSV csv = CSV(',', false, "index", "indexStr", "count", "prob");
@@ -401,7 +252,7 @@ Landscape generate_land() {
 	float L = scaling * ceil(tan(shape.slope) * sqrt(-log(error) / (4.0 * _density))); // ceil optional
 	writeln("Height: ", L);
 	Distribution heightDistribution = new ConstantDistribution(L);
-	Landscape land = createLandscape(scaling * size, _density / (scaling ^^ 2), heightDistribution, false);
+	Landscape land = Landscape(createPeaks(scaling * size, _density / (scaling ^^ 2), heightDistribution), &shape);
 	return land;
 }
 
@@ -426,7 +277,7 @@ void generate(bool splitTriangles = true)() {
 	float L = scaling * ceil(tan(shape.slope) * sqrt(-log(error) / (4.0 * _density))); // ceil optional
 
 	Distribution heightDistribution = new ConstantDistribution(L);
-	Landscape land = createLandscape(scaling * size, _density / (scaling ^^ 2), heightDistribution, false, true);
+	Landscape land = Landscape(createPeaks(scaling * size, _density / (scaling ^^ 2), heightDistribution), &shape);
 
 	Vec!3[5] shapeVertices = Vec!3(0, 0, 0) ~ shape.legs.dup;
 	shapeVertices[] = shapeVertices[] * (-L / shape.legs[0].z);
@@ -528,8 +379,8 @@ void experiment() {
 	string heightsFile = "heightCumulative.csv"; // Source: "Opto-electrical modelling and optimization study of a novel IBC c-Si solar cellOpto-electrical modelling and optimization study of a novel IBC c-Si solar cell"
 	Distribution heightDistribution = new HistogramDistribution(heightsFile, maxVarHeight);
 	Distribution heightDistributionConstant = new ConstantDistribution(maxConstHeight);
-	Landscape land = createLandscape(width, _density, heightDistribution); // 20 micron, 0.6 per micron²
-	Landscape landConstant = createLandscape(width, _density, heightDistributionConstant);
+	Landscape land = Landscape(createPeaks(width, _density, heightDistribution), &shape); // 20 micron, 0.6 per micron²
+	Landscape landConstant = Landscape(createPeaks(width, _density, heightDistributionConstant), &shape);
 
 	// SphereSampler sphereSampler = new SphereFibonacci(sphereSampleCount);
 	SphereSampler sphereSampler = new SphereSimple(simpleSphereLongCount, simpleSphereLatCount, true);
@@ -563,7 +414,7 @@ void measureHighPoint(const Landscape land, const Vec!3[] sphereSamples, string 
 	while (!goodSample) {
 		Vec!3 org = Vec!3(uniform(-width / 2, width / 2), uniform(-width / 2, width / 2), maxConstHeight + 1);
 		Ray ray = Ray(org, Vec!3(0, 0, -1));
-		Hit hit = trace(land, ray);
+		Hit hit = traceLand(land, ray);
 		sample = hit.pos;
 		samplePeakID = hit.peakID;
 		goodSample = sample.z > 0.85 * maxConstHeight && hit.face == 0;
@@ -578,7 +429,7 @@ void measureTracing(const Landscape land, const Vec!3[] sphereSamples, const Vec
 	foreach (i, Vec!3 sample; samples) {
 		foreach (Vec!3 sphereSample; sphereSamples) {
 			Ray ray = Ray(sample, sphereSample, samplePeakIDs[i]);
-			Hit hit = trace(land, ray);
+			Hit hit = traceLand(land, ray);
 
 			bool hitPeak = hit.hit == false; // Not obscured
 			Vec!3 dirPoint = sample + sphereSample;
@@ -595,7 +446,7 @@ void measureLand(const Landscape land, string fileName) {
 		foreach (y; 0 .. landWidthSampleCount) {
 			Ray ray = Ray(Vec!3(x * width / landWidthSampleCount - width / 2,
 					y * width / landWidthSampleCount - width / 2, maxConstHeight + 1), Vec!3(0, 0, -1));
-			Hit hit = trace(land, ray);
+			Hit hit = traceLand(land, ray);
 			assert(hit.hit);
 			file.writeln(hit.pos.x, ",", hit.pos.y, ",", hit.pos.z);
 		}
@@ -623,7 +474,7 @@ void measure(const Landscape land, SphereSampler sphereSampler, float maxHeight,
 		while (!east) { // Filter for east faces
 			Vec!3 org = Vec!3(uniform(-width / 2, width / 2), uniform(-width / 2, width / 2), maxHeight + 1);
 			Ray ray = Ray(org, Vec!3(0, 0, -1));
-			hit = trace(land, ray);
+			hit = traceLand(land, ray);
 			assert(hit.hit);
 			org.assertAlmostEquals(Vec!3(hit.pos.x, hit.pos.y, maxHeight + 1));
 			east = hit.face == 0;
@@ -656,7 +507,7 @@ void measure(const Landscape land, SphereSampler sphereSampler, float maxHeight,
 
 		foreach (sphereID, sphereSample; sphereSampler.data) {
 			Ray ray = Ray(samplePos, sphereSample, samplePeakIDs[sampleID]); // Assuming East Face
-			Hit hit = trace(land, ray);
+			Hit hit = traceLand(land, ray);
 
 			uint heightBin = cast(uint) floor(
 				heightBins * (
@@ -716,62 +567,10 @@ void measure(const Landscape land, SphereSampler sphereSampler, float maxHeight,
 	}
 }
 
-/// Generate Pyramid Landscape
-/// Params:
-///   width = square width of sample (micrometers)
-///   density = density of pyramids (#/micrometer)
-///   heightDistribution = Distribution of pyramid peak heights
-///   testBurried = test if peaks are burried under surface & cull. (Not necessary at constant peak heights)
-/// Returns: Pyramid Landscape
-Landscape createLandscape(float width, float density, Distribution heightDistribution, bool testBurried = true, bool grid = false) {
-	uint count = cast(uint)(width * width * density);
-	if (grid)
-		count = (cast(uint) sqrt(width * width * density)) ^^ 2;
-
-	Vec!3[] peaks;
-	peaks.reserve(count);
-
-	// Decide on heights first.
-	float[] heights = new float[count];
-	foreach (i; 0 .. count)
-		heights[i] = heightDistribution.sample();
-
-	// Sort to place largest first.
-	sort!"a>b"(heights);
-
-	if (grid) {
-		uint root = cast(uint) sqrt(cast(float) count);
-		float step = width / root;
-		foreach (x; 0 .. root) {
-			foreach (y; 0 .. root) {
-				uint index = x * root + y;
-				peaks ~= Vec!3(x * step, y * step, heights[index]);
-			}
-		}
-	} else {
-		while (peaks.length < count) {
-			uint i = cast(uint) peaks.length;
-			Vec!3 newPeak;
-			newPeak[0] = uniform!"()"(-width / 2, width / 2);
-			newPeak[1] = uniform!"()"(-width / 2, width / 2);
-			newPeak[2] = heights[i];
-
-			if (testBurried) { // Cull if burried
-				Hit hit = trace(peaks, Ray(newPeak, Vec!3(0, 0, 1)));
-				if (!hit.hit)
-					peaks ~= newPeak;
-			} else {
-				peaks ~= newPeak;
-			}
-		}
-	}
-	return Landscape(peaks);
-}
-
 struct Ray {
 	Vec!3 org;
 	Vec!3 dir;
-	uint exculdePeak = uint.max;
+	uint excludePeak = uint.max;
 }
 
 struct Hit {
@@ -780,21 +579,6 @@ struct Hit {
 	float t = float.infinity;
 	uint peakID;
 	ubyte face;
-}
-
-Hit trace(const Vec!3[] peaks, Ray ray) {
-	shared Hit minHit;
-	foreach (id, peak; parallel(peaks)) {
-		if (ray.exculdePeak == id)
-			continue;
-		Hit hit = trace(peak, ray);
-		if (hit.hit) {
-			hit.peakID = cast(uint) id;
-			synchronized if (hit.t < minHit.t)
-				minHit = cast(shared Hit) hit;
-		}
-	}
-	return minHit;
 }
 
 bool findNextBin(const Landscape land, ref Ray ray, ref Nullable!(Vec!(2, uint)) currentBin) {
@@ -829,8 +613,8 @@ bool findNextBin(const Landscape land, ref Ray ray, ref Nullable!(Vec!(2, uint))
 			if (ray.dir[axis] == 0) {
 				hits[axis] = Hit();
 			} else {
-				float offset = land.binWidth[axis] * (currentBin.get()[axis] + (ray.dir[axis] > 0 ? 1
-						: 0));
+				float offset = land.binWidth[axis] * (
+					currentBin.get()[axis] + (ray.dir[axis] > 0 ? 1 : 0));
 				Vec!3 point = land.minBound;
 				point[axis] += offset;
 				Vec!3 normal = Vec!3(0);
@@ -861,7 +645,7 @@ bool findNextBin(const Landscape land, ref Ray ray, ref Nullable!(Vec!(2, uint))
 }
 
 unittest {
-	Landscape land = Landscape([]);
+	Landscape land = Landscape([], &shape);
 	land.createBins(Vec!3(-1), Vec!3(1), 2);
 	Nullable!(Vec!(2, uint)) bin;
 
@@ -904,14 +688,14 @@ unittest {
 	assert(ray.org.almostEquals(stop));
 }
 
-Hit trace(const Landscape land, Ray ray) {
+Hit traceLand(const Landscape land, Ray ray) {
 	if (!land.useBins) {
-		return trace(land.peaks, ray);
+		return tracePeaks(land.shape, land.peaks, ray);
 	} else {
 		Nullable!(Vec!(2, uint)) currentBin;
 		while (findNextBin(land, ray, currentBin)) {
 			const Vec!3[] peaks = land.getBin(currentBin.get().x, currentBin.get().y);
-			Hit hit = trace(peaks, ray);
+			Hit hit = tracePeaks(land.shape, peaks, ray);
 			if (hit.hit)
 				return hit;
 		}
@@ -919,10 +703,26 @@ Hit trace(const Landscape land, Ray ray) {
 	}
 }
 
-Hit trace(Vec!3 peak, Ray ray) {
+Hit tracePeaks(const ref PyramidShape shape, const Vec!3[] peaks, Ray ray) {
+	shared Hit minHit;
+	foreach (id, peak; parallel(peaks)) {
+		// foreach (id, peak; peaks) {
+		if (ray.excludePeak == id)
+			continue;
+		Hit hit = tracePeak(shape, peak, ray);
+		if (hit.hit) {
+			hit.peakID = cast(uint) id;
+			synchronized if (hit.t < minHit.t)
+				minHit = cast(shared Hit) hit;
+		}
+	}
+	return minHit;
+}
+
+Hit tracePeak(const ref PyramidShape shape, Vec!3 peak, Ray ray) {
 	Hit minHit;
 	foreach (ubyte i, Face f; shape.faces) {
-		Hit hit = trace(peak, f, ray);
+		Hit hit = traceFace(shape, peak, f, ray);
 		if (hit.hit && hit.t < minHit.t) {
 			minHit = hit;
 			minHit.face = i;
@@ -932,19 +732,19 @@ Hit trace(Vec!3 peak, Ray ray) {
 }
 
 unittest {
-	shape = PyramidShape(degreesToRadians(45.0));
-	Hit hit = trace(Vec!3(0, 0.25, 0), Ray(Vec!3(0, -1, 1), Vec!3(0, 0, -1)));
+	PyramidShape shape = PyramidShape(degreesToRadians(45.0));
+	Hit hit = tracePeak(shape, Vec!3(0, 0.25, 0), Ray(Vec!3(0, -1, 1), Vec!3(0, 0, -1)));
 	assert(hit.hit);
 	assert(hit.pos == Vec!3(0, -1, -1.25));
 }
 
 unittest {
-	shape = PyramidShape(degreesToRadians(54.7));
-	Hit hit = trace(Vec!3(0, 0, 1), Ray(Vec!3(0), Vec!3(0, 0, 1)));
+	PyramidShape shape = PyramidShape(degreesToRadians(54.7));
+	Hit hit = tracePeak(shape, Vec!3(0, 0, 1), Ray(Vec!3(0), Vec!3(0, 0, 1)));
 	assert(hit.hit);
 }
 
-Hit trace(Vec!3 peak, Face face, Ray ray) {
+Hit traceFace(const ref PyramidShape shape, Vec!3 peak, Face face, Ray ray) {
 	Hit hit = tracePlane(peak, face.normal, ray);
 	if (!hit.hit)
 		return hit;
@@ -994,7 +794,7 @@ unittest {
 
 struct ReflectData {
 	bool exits;
-	Vec!3 outDir;
+	Ray outRay;
 	uint reflectCount;
 	uint reflectID; // gives what normals were hit. (E,N,W,S)=(0,1,2,3) tree id.
 }
@@ -1002,10 +802,10 @@ struct ReflectData {
 ReflectData reflectRecurse(Landscape land, Ray ray, uint reflectCount) {
 	uint reflectID = 0;
 	foreach (r; 0 .. reflectCount + 1) { //TODO: prefer not to use +1
-		Hit hit = trace(land, ray);
+		Hit hit = traceLand(land, ray);
 		if (!hit.hit) {
-			assert(r > 0);
-			return ReflectData(true, ray.dir, r, reflectID);
+			assert(r > 0, "Initial ray missed landscape! " ~ ray.to!string);
+			return ReflectData(true, ray, r, reflectID);
 		}
 		if (r > 0)
 			reflectID = 4 * reflectID + 4 + hit.face;
@@ -1013,15 +813,13 @@ ReflectData reflectRecurse(Landscape land, Ray ray, uint reflectCount) {
 			reflectID = hit.face;
 		ray.dir = reflect(ray.dir, shape.normals[hit.face]);
 		ray.org = hit.pos;
-		ray.exculdePeak = hit.peakID;
+		ray.excludePeak = hit.peakID;
 	}
-	return ReflectData(false, ray.dir, reflectCount);
+	return ReflectData(false, ray, reflectCount);
 }
 
 unittest {
-	Landscape land = [Vec!3(-2, 0, 1), Vec!3(2, 0, 1)];
-	shape = PyramidShape(degreesToRadians(45.0));
-
+	Landscape land = Landscape([Vec!3(-2, 0, 1), Vec!3(2, 0, 1)], PI_4);
 	Vec!3 org = Vec!3(-1, 0, 2);
 	Vec!3 dir = Vec!3(0, 0, -1);
 	Ray ray = Ray(org, dir);
@@ -1029,7 +827,7 @@ unittest {
 	assert(reflectData.exits);
 	assert(reflectData.reflectCount == 2);
 	assert(reflectData.reflectID == 4 + 2);
-	reflectData.outDir.assertAlmostEquals(Vec!3(0, 0, 1));
+	reflectData.outRay.dir.assertAlmostEquals(Vec!3(0, 0, 1));
 }
 
 string reflectIDToString(uint reflectID) {
@@ -1050,4 +848,56 @@ unittest {
 	assert(str1 == "E");
 	string str2 = reflectIDToString(70);
 	assert(str2 == "SEW");
+}
+
+uint reflectStringToID(string path) {
+	uint id = 0;
+
+	ubyte faceID(char c) {
+		final switch (c) {
+		case 'E':
+			return 0;
+		case 'N':
+			return 1;
+		case 'W':
+			return 2;
+		case 'S':
+			return 3;
+		}
+	}
+
+	foreach (i, char c; path) {
+		if (i > 0)
+			id = (id + 1) * 4;
+		id += faceID(c);
+	}
+	return id;
+}
+
+unittest {
+	uint id1 = reflectStringToID("E");
+	assert(id1 == 0);
+	uint id2 = reflectStringToID("SEW");
+	assert(id2 == 70);
+}
+
+// 45 degrees triangle exit directions
+unittest {
+	PyramidShape shape = PyramidShape(PI_4);
+	Landscape land = Landscape([Vec!3(0, 0, 0), Vec!3(10, 0, 0)], &shape);
+	Ray ray = Ray(Vec!3(1, 0, 1), Vec!3(0, 0, -1));
+	ReflectData reflect = reflectRecurse(land, ray, 2);
+	assert(reflect.exits);
+	assert(reflect.reflectCount == 2);
+	assert(reflect.outRay.dir.almostEquals(Vec!3(0, 0, 1)));
+	assert(reflect.outRay.org.almostEquals(Vec!3(9, 0, -1)));
+	assert(reflect.reflectID == reflectStringToID("EW"));
+
+	Ray rayBack = Ray(Vec!3(9, 0, 1), Vec!3(0, 0, -1));
+	ReflectData reflectBack = reflectRecurse(land, rayBack, 2);
+	assert(reflectBack.exits);
+	assert(reflectBack.reflectCount == 2);
+	assert(reflectBack.outRay.dir.almostEquals(Vec!3(0, 0, 1)));
+	assert(reflectBack.outRay.org.almostEquals(Vec!3(1, 0, -1)));
+	assert(reflectBack.reflectID == reflectStringToID("WE"));
 }
