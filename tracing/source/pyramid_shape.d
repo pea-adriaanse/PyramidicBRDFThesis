@@ -44,9 +44,7 @@ struct PyramidShape {
 		Face[4] faces;
 	}
 
-	@disable this();
-
-	this(double slope) {
+	this(double slope, float heightError = 1e-5) {
 		this.slope = cast(float) slope;
 		double cot = 1.0 / tan(slope);
 		this.cot_slope = cast(float) cot;
