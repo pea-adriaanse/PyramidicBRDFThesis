@@ -6,12 +6,15 @@ import pyramid_shape;
 import ray;
 import tracing;
 import vdmath;
+import vdmath.misc: degreesToRadians;
 
 import std.algorithm.comparison : clamp;
 import std.algorithm.sorting : sort;
 import std.exception : enforce;
 import std.math.algebraic : sqrt;
+import std.math.exponential : log;
 import std.math.rounding : floor;
+import std.math.trigonometry : tan;
 import std.parallelism : parallel;
 import std.path : isValidFilename;
 import std.random : uniform;
@@ -31,21 +34,27 @@ struct Landscape {
 	Vec!3[][] bins;
 	Vec!2 binWidth;
 
-	this(float width, float density = 0.6, float slope = 54.7, Distribution heightDistribution = null) {
+	this(float width, float density = 0.6, float slope = degreesToRadians(54.7), Distribution heightDistribution = null) {
 		setShape(width, density, slope);
 		this.peaks = createPeaks(heightDistribution);
 		this.density = peaks.length / width ^^ 2; // Update
+		this.approxHeight = calcHeight(this.shape.slope, this.density);
 	}
 
-	this(float width, Vec!3[] peaks, float slope = 54.7) {
+	this(float width, Vec!3[] peaks, float slope = degreesToRadians(54.7)) {
 		setShape(width, peaks.length / (width ^^ 2), slope);
 		this.peaks = peaks;
+		this.approxHeight = calcHeight(this.shape.slope, this.density);
 	}
 
 	private void setShape(float width, float density, float slope) {
 		this.width = width;
 		this.density = density;
 		this.shape = PyramidShape(slope);
+	}
+
+	static float calcHeight(float slope, float density, float heightError = 1e-5) {
+		return tan(slope) * sqrt(-log(heightError) / (4.0 * density));
 	}
 
 	@disable this(Vec!3[] peaks, float slope) {
@@ -63,7 +72,7 @@ struct Landscape {
 		static foreach (i; 0 .. 3)
 			if (pos[i] < minBound[i] || pos[i] > maxBound[i])
 				return ret; // null
-		Vec!3 local = pos - minBound;
+		Vec!(3, double) local = (cast(Vec!(3,double)) pos) - minBound; // float rounding error causes issues
 		uint binX = clamp(cast(uint) floor(local.x / binWidth.x), 0, binCount - 1);
 		uint binY = clamp(cast(uint) floor(local.y / binWidth.y), 0, binCount - 1);
 		ret = Vec!(2, uint)(binX, binY);
@@ -104,17 +113,20 @@ struct Landscape {
 		foreach (Vec!3 peak; peaks) {
 			Vec!3 local = peak - minBound;
 			float baseWidth = local.z * cot_slope;
-			uint minXBin = clamp(cast(uint) floor((local.x - baseWidth) / binWidth.x), 0, binCount - 1);
-			uint maxXBin = clamp(cast(uint) floor((local.x + baseWidth) / binWidth.x), 0, binCount - 1);
-			uint minYBin = clamp(cast(uint) floor((local.y - baseWidth) / binWidth.y), 0, binCount - 1);
-			uint maxYBin = clamp(cast(uint) floor((local.y + baseWidth) / binWidth.y), 0, binCount - 1);
+			uint minXBin = cast(uint) clamp(floor(cast(int)(local.x - baseWidth) / binWidth.x), 0, binCount - 1);
+			uint maxXBin = cast(uint) clamp(floor(cast(int)(local.x + baseWidth) / binWidth.x), 0, binCount - 1);
+			uint minYBin = cast(uint) clamp(floor(cast(int)(local.y - baseWidth) / binWidth.y), 0, binCount - 1);
+			uint maxYBin = cast(uint) clamp(floor(cast(int)(local.y + baseWidth) / binWidth.y), 0, binCount - 1);
 			for (uint x = minXBin; x <= maxXBin; x++)
 				for (uint y = minYBin; y <= maxYBin; y++)
 					this.bins[binIndex(x, y)] ~= peak;
 		}
+
+		foreach (i, bin; bins)
+			assert(bin.length > 0);
 	}
 
-	static Vec!3[] createGrid(float width, float density, float height, bool center= true) {
+	static Vec!3[] createGrid(float width, float density, float height, bool center = true) {
 		uint root = cast(uint) sqrt(width ^^ 2 * density);
 		return createGrid(width, root, height, center);
 	}

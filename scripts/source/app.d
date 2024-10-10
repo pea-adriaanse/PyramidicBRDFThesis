@@ -20,10 +20,11 @@ void main(string[] args) {
 
 	auto res = executeShell("cd ../iridescence & cmake --build --preset cpuRelease");
 	enforce(res.status == 0, "Iridescence failed to build:\n" ~ res.output);
-	res = executeShell("cd ../tracing & dub build --build=debug");
+	res = executeShell("cd ../tracing & dub build --build=release");
 	enforce(res.status == 0, "Tracing failed to build:\n" ~ res.output);
 	mkdirRecurse("./temp/");
 
+	enforce(polarAngleSplitCount >= 1, "Zero polar splits will do nothing.");
 	if (polarAngleSplitCount == 1) {
 		args[1] = polarAngleMax.to!string;
 		reflectDist(args);

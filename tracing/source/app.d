@@ -25,8 +25,7 @@ import std.string : strip;
 import std.typecons : Nullable;
 import std.datetime.stopwatch;
 
-
-immutable PyramidShape shape = PyramidShape(degreesToRadians(_slope));
+// immutable PyramidShape shape = PyramidShape(degreesToRadians(_slope));
 enum _slope = 45.0; //54.7;
 enum _width = 20.0; //? in micron
 enum float width = 40; // used
@@ -88,15 +87,15 @@ void measureReflectPathDist(string[] args) {
 	bool gridSample = false;
 	bool gridLand = false;
 
-	float width = 20;
+	float width = 1000;
 	const uint binCount = 25;
 	Landscape land;
 	if (gridLand)
 		land = Landscape(width, Landscape.createGrid(width, _density, 0));
 	else
 		land = Landscape(width, _density);
-	land.createBins(binCount);
 	land.save("reflectDist.ply");
+	land.createBins(binCount);
 
 	Vec!3 wo;
 	uint sampleCount, reflectCount;
@@ -133,10 +132,14 @@ void measureReflectPathDist(string[] args) {
 	uint captureCount = 0;
 
 	Vec!3[] offsets;
-	if (gridSample)
-		offsets = Landscape.createGrid(width, sampleCount, 0);
-	else
-		offsets = Landscape.createPoints(width, sampleCount, 0);
+	if (gridSample) {
+		offsets = Landscape.createGrid(width * 2 / 3.0, sampleCount, 0);
+		sampleCount = sampleCount ^^ 2;
+		writeln(offsets);
+		foreach(f;offsets)
+			writeln(f);
+	} else
+		offsets = Landscape.createPoints(width * 2 / 3.0, sampleCount, 0);
 
 	CSV csv = CSV(',', false, "index", "indexStr", "count", "prob");
 
@@ -254,6 +257,7 @@ void generate(bool splitTriangles = true)() {
 	StopWatch watch = StopWatch(AutoStart.yes);
 
 	float error = 0.001;
+	PyramidShape shape = PyramidShape(_slope);
 	float L = scaling * ceil(tan(shape.slope) * sqrt(-log(error) / (4.0 * _density))); // ceil optional
 
 	Landscape land = Landscape(size, _density);
@@ -322,6 +326,8 @@ void test_shadowing() {
 		float x = sqrt(1.0f - r.z * r.z);
 		return Vec!3(x, 0, r.z);
 	}
+
+	PyramidShape shape = PyramidShape(_slope);
 
 	float shadow_lyanne(Vec!3 o, Vec!3 v) {
 		if (o.dot(v) < 0.0)

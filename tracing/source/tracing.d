@@ -16,29 +16,30 @@ import std.typecons : Nullable;
 bool findNextBin(const Landscape land, ref Ray ray, ref Nullable!(Vec!(2, uint)) currentBin) {
 	assert(land.useBins);
 	if (currentBin.isNull) {
-		if (ray.org.z > land.maxBound.z) { // Outside z bounds, trace to roof
-			if (ray.dir.z > 0)
-				return false;
-			Hit hit = tracePlane(land.maxBound, Vec!3(0, 0, 1), ray);
+		foreach (ubyte axis; 0 .. 3) {
+			bool tooMuch = ray.org[axis] > land.maxBound[axis];
+			bool tooLittle = ray.org[axis] < land.minBound[axis];
+			Vec!3 pointOnPlane;
+			Vec!3 dir = Vec!3(0);
+			if (tooMuch) {
+				if (ray.dir[axis] > 0)
+					return false;
+				pointOnPlane = land.maxBound;
+				dir[axis] = -1;
+			} else if (tooLittle) {
+				if (ray.dir[axis] < 0)
+					return false;
+				pointOnPlane = land.minBound;
+				dir[axis] = 1;
+			} else
+				continue;
+
+			Hit hit = tracePlane(pointOnPlane, dir, ray);
 			assert(hit.hit);
 			ray.org = hit.pos;
-			currentBin = land.getBin(ray.org);
-			assert(!currentBin.isNull);
-			return true;
-		} else if (ray.org.z < land.minBound.z) { // Outside z bounds, trace to floor
-			if (ray.dir.z < 0)
-				return false;
-			Hit hit = tracePlane(land.minBound, Vec!3(0, 0, -1), ray);
-			assert(hit.hit);
-			ray.org = hit.pos;
-			currentBin = land.getBin(ray.org);
-			assert(!currentBin.isNull);
-			return true;
-		} else { // Initialize current bin
-			currentBin = land.getBin(ray.org);
-			assert(!currentBin.isNull);
-			return true;
 		}
+		currentBin = land.getBin(ray.org);
+		return !currentBin.isNull;
 	} else {
 		Hit[2] hits;
 		foreach (ubyte axis; 0 .. 2) { // Calculate distances to potential next bins walls
@@ -77,7 +78,7 @@ bool findNextBin(const Landscape land, ref Ray ray, ref Nullable!(Vec!(2, uint))
 }
 
 unittest {
-	Landscape land = Landscape(2, []);
+	Landscape land = Landscape(2, [Vec!3(0)]);
 	land.createBins(Vec!3(-1), Vec!3(1), 2);
 	Nullable!(Vec!(2, uint)) bin;
 
@@ -137,8 +138,8 @@ Hit traceLand(const Landscape land, Ray ray) {
 
 Hit tracePeaks(const ref PyramidShape shape, const Vec!3[] peaks, Ray ray) {
 	shared Hit minHit;
-	// foreach (id, peak; parallel(peaks)) {
-		foreach (id, peak; peaks) {
+	foreach (id, peak; parallel(peaks)) {
+		// foreach (id, peak; peaks) {
 		if (ray.excludePeak == id)
 			continue;
 		Hit hit = tracePeak(shape, peak, ray);
@@ -154,7 +155,7 @@ Hit tracePeaks(const ref PyramidShape shape, const Vec!3[] peaks, Ray ray) {
 Hit tracePeak(const ref PyramidShape shape, Vec!3 peak, Ray ray) {
 	Hit minHit;
 	foreach (ubyte i, Face f; shape.faces) {
-		Hit hit = traceFace(shape, peak, f, ray);
+		Hit hit = traceFace(peak, f, i, ray);
 		if (hit.hit && hit.t < minHit.t) {
 			minHit = hit;
 			minHit.face = i;
@@ -176,19 +177,43 @@ unittest {
 	assert(hit.hit);
 }
 
-Hit traceFace(const ref PyramidShape shape, Vec!3 peak, Face face, Ray ray) {
+Hit traceFace(Vec!3 peak, Face face, uint faceID, Ray ray) {
 	Hit hit = tracePlane(peak, face.normal, ray);
 	if (!hit.hit)
 		return hit;
-	Vec!3 P = hit.pos - peak;
+	Vec!(3, double) P = (cast(Vec!(3, double)) hit.pos) - peak; // float error mitigation
 
-	float sliceWidth = shape.cot_slope * -P.z; // equals abs x or y.
+	final switch (faceID) {
+	case 0:
+		hit.hit = P.x >= 0 && abs(P.y) <= abs(P.x);
+		break;
+	case 1:
+		hit.hit = P.y >= 0 && abs(P.x) <= abs(P.y);
+		break;
+	case 2:
+		hit.hit = P.x <= 0 && abs(P.y) <= abs(P.x);
+		break;
+	case 3:
+		hit.hit = P.y <= 0 && abs(P.x) <= abs(P.y);
+		break;
+	}
 
-	hit.hit = abs(P.x) <= sliceWidth && abs(P.y) <= sliceWidth;
-	// float Pu = P.dot(face.legs[0]);
-	// float Pv = (P - face.legs[0] * Pu).dot(face.legs[1]);
-	// bool inside = Pu >= 0 && Pv >= 0;
 	return hit;
+}
+
+unittest {
+	PyramidShape shape = PyramidShape(PI_4);
+	Vec!3 peak = Vec!3(0);
+	Face face = shape.E;
+	Ray ray = Ray(Vec!3(0.1, 0.09999, 0), Vec!3(0, 0, -1));
+	Hit hit = traceFace(peak, face, 0, ray);
+	assert(hit.hit);
+	assert(hit.face == 0);
+	assert(hit.pos.almostEquals(Vec!3(0.1, 0.09999, -0.1)));
+
+	ray = Ray(Vec!3(0.1, 0.1001, 0), Vec!3(0, 0, -1));
+	hit = traceFace(peak, face, 0, ray);
+	assert(!hit.hit);
 }
 
 Hit tracePlane(Vec!3 point, Vec!3 normal, Ray ray) {
