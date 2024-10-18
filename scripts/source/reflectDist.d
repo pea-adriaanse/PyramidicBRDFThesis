@@ -12,7 +12,7 @@ import core.stdc.stdio : fread;
 import vdmath;
 import vdmath.misc;
 import std.math : PI;
-import std.stdio: File;
+import std.stdio : File;
 
 void reflectDist(string[] args) {
     Vec!3 wo;
@@ -20,14 +20,14 @@ void reflectDist(string[] args) {
     float polar;
     float azimuth;
     switch (args.length) {
-    case 5:
+    case 6:
         polar = degreesToRadians(args[1].to!float);
         azimuth = degreesToRadians(args[2].to!float);
         wo.x = sin(polar) * cos(azimuth);
         wo.y = sin(polar) * sin(azimuth);
         wo.z = cos(polar);
         break;
-    case 6:
+    case 7:
         wo.x = args[1].to!float;
         wo.y = args[2].to!float;
         wo.z = args[3].to!float;
@@ -40,13 +40,14 @@ void reflectDist(string[] args) {
             azimuth += PI;
         break;
     default:
-        assert(0, "Need 4/5 arguments: (wo.x wo.y wo.z sampleCount reflectCount) / (polarAngle azimuthalAngle sampleCount reflectCount) but got: " ~ args
+        assert(0, "Need 5/6 arguments: (wo.x wo.y wo.z sampleCount reflectCount name) / (polarAngle azimuthalAngle sampleCount reflectCount name) but got: " ~ args
                 .length.to!string);
     }
     wo = wo.normalize();
-    uint sampleCount = args[$ - 2].to!uint;
-    uint reflectCount = args[$ - 1].to!uint;
-    string identifier = format("t%.2f_f%.2f", radiansToDegrees(polar), radiansToDegrees(azimuth));
+    uint sampleCount = args[$ - 3].to!uint;
+    uint reflectCount = args[$ - 2].to!uint;
+    string name = args[$ - 1];
+    string identifier = format("t%.2f_f%.2f_%s", radiansToDegrees(polar), radiansToDegrees(azimuth), name);
 
     uint resolution = 400;
     float fov = 90;
@@ -102,7 +103,7 @@ void reflectDist(string[] args) {
     // exeFile.unlock();
 
     auto res1 = executeShell(
-        "cd ../tracing & dub run --build=release -- reflectDist " ~ woString ~ ' ' ~ sampleCount
+        "cd ../tracing & tracing.exe reflectDist " ~ woString ~ ' ' ~ sampleCount
             .to!string ~ ' ' ~ reflectCount.to!string ~ ' ' ~ identifier); // Turns out I can also use Redirect.stdin
     enforce(res1.status == 0, "Tracing Failed:\n" ~ res1.output);
     writeln(res1.output);

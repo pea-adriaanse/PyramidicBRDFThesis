@@ -26,7 +26,7 @@ import std.typecons : Nullable;
 import std.datetime.stopwatch;
 
 // immutable PyramidShape shape = PyramidShape(degreesToRadians(_slope));
-enum _slope = 45.0; //54.7;
+enum _slope = degreesToRadians(54.7);
 enum _width = 20.0; //? in micron
 enum float width = 40; // used
 enum _density = 0.6; //? per micron²
@@ -81,20 +81,32 @@ unittest {
 	assert(pow4sum(4u) == 340);
 }
 
+// unittest {
+// 	Vec!3[] peaks = [
+// 		Vec!3(-1, -1, 0),
+// 		Vec!3(1, -1, 0),
+// 		Vec!3(1, 1, 0),
+// 		Vec!3(-1, 1, 0)
+// 	];
+// 	Landscape land = Landscape(2, peaks, PI_4);
+// 	Vec!3[] samples = Landscape.createPoints()
+// }
+
 void measureReflectPathDist(string[] args) {
-	rndGen().seed(0);
+	rndGen().seed(1);
 
 	bool gridSample = false;
 	bool gridLand = false;
 
-	float width = 1000;
+	float width = 500;
 	const uint binCount = 25;
 	Landscape land;
 	if (gridLand)
 		land = Landscape(width, Landscape.createGrid(width, _density, 0));
 	else
 		land = Landscape(width, _density);
-	land.save("reflectDist.ply");
+	// land = Landscape(width, [Vec!3(0)], PI_4);
+	// land.save("reflectDist.ply");
 	land.createBins(binCount);
 
 	Vec!3 wo;
@@ -135,9 +147,7 @@ void measureReflectPathDist(string[] args) {
 	if (gridSample) {
 		offsets = Landscape.createGrid(width * 2 / 3.0, sampleCount, 0);
 		sampleCount = sampleCount ^^ 2;
-		writeln(offsets);
-		foreach(f;offsets)
-			writeln(f);
+		// Mat!4 = rotZ = []
 	} else
 		offsets = Landscape.createPoints(width * 2 / 3.0, sampleCount, 0);
 
