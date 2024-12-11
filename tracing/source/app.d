@@ -50,6 +50,8 @@ void main(string[] args) {
 	if (args.length <= 1)
 		return writeln("Choose:\n\t- reflectDist\n\t- experiment\n\t- generate\n\t- test");
 	switch (args[1]) {
+	case "measureBackBounceProb":
+		return measureBackBounceProb(args[2..5]);
 	case "reflectDist":
 		return measureReflectPathDist(args[2 .. $]);
 	case "experiment":
@@ -91,6 +93,73 @@ unittest {
 // 	Landscape land = Landscape(2, peaks, PI_4);
 // 	Vec!3[] samples = Landscape.createPoints()
 // }
+
+import plt = matplotlibd.pyplot;
+
+void measureBackBounceProb(string[] args) {
+	float slope = degreesToRadians(54.7);
+	float density = 0.6;
+
+	float z = args[0].to!float; // 0 to -L
+	float beta = args[1].to!float; // -1 to 1
+	float x = -z / tan(slope);
+	float y = beta * x;
+
+	// float theta = degreesToRadians(args[2].to!float); x-axis
+	float phi = degreesToRadians(args[2].to!float); // 0 to 90
+	// Vec!3 c = Vec!3(cos(theta) * cos(phi), cos(theta) * sin(phi), sin(theta));
+
+	Vec!3 p = Vec!3(x, y, z);
+	float width = 2000;
+	Landscape land = Landscape(width, density, slope);
+	land.createBins(25);
+	uint samples = 500;
+
+	Vec!3[] sampleStart;
+	uint[] sampleIndex;
+	sampleStart.reserve(samples);
+	foreach (i; 0 .. land.peaks.length) {
+		Vec!3 peak = land.peaks[i];
+		if (peak.x > width * 2 / 3.0 || peak.y > width * 2 / 3.0)
+			continue;
+
+		Vec!3 start = peak + p;
+		Ray testRay = Ray(start, Vec!3(0, 0, 1));
+		Hit hit = traceLand(land, testRay);
+		if (!hit.hit) {
+			sampleStart ~= start;
+			sampleIndex ~= cast(uint) i;
+			if (sampleStart.length == samples)
+				break;
+		}
+	}
+	assert(sampleStart.length == samples, "Could not find enough peaks");
+
+	enum thetaSamples = 50;
+	float[] thetas = new float[thetaSamples];
+	float[] rebounceCounts = new float[thetaSamples];
+	foreach (i; 0 .. thetaSamples)
+		thetas[i] = i * PI_2 / thetaSamples;
+	foreach (index, theta; thetas) {
+		write("\r", index, " / ", thetaSamples, "\t\t");
+		Vec!3 c = Vec!3(cos(theta) * cos(phi), cos(theta) * sin(phi), sin(theta));
+		uint rebounces = 0; // bounces back and hits previous pyramid
+		foreach (startIndex, start; sampleStart) {
+			Ray ray = Ray(start, start - c);
+			ReflectData!true reflectData = reflectRecurse!true(land, ray, 3);
+			if (reflectData.history.length <= 2 || reflectData.history[0] != sampleIndex[startIndex]) // no bounce back
+				continue;
+			if (reflectData.history[0] == reflectData.history[2])
+				rebounces += 1;
+		}
+		rebounceCounts[index] = rebounces.to!float;
+	}
+	writeln();
+
+	plt.plot(thetas, rebounceCounts, "r-");
+	plt.savefig("rebounceProb.png");
+	plt.show();
+}
 
 void measureReflectPathDist(string[] args) {
 	rndGen().seed(1);
@@ -141,6 +210,7 @@ void measureReflectPathDist(string[] args) {
 
 	uint optionCount = pow4sum(reflectCount);
 	uint[] pathCounts = new uint[optionCount];
+	uint[] reBouncedCounts = new uint[optionCount];
 	uint captureCount = 0;
 
 	Vec!3[] offsets;
@@ -151,7 +221,7 @@ void measureReflectPathDist(string[] args) {
 	} else
 		offsets = Landscape.createPoints(width * 2 / 3.0, sampleCount, 0);
 
-	CSV csv = CSV(',', false, "index", "indexStr", "count", "prob");
+	CSV csv = CSV(',', false, "index", "indexStr", "count", "prob", "rebounceProb");
 
 	foreach (i; 0 .. sampleCount) {
 		debug writef("\rRaytracing: %u/%u", i, sampleCount);
@@ -161,19 +231,23 @@ void measureReflectPathDist(string[] args) {
 		Vec!3 cam = (target - dir * 2 * minHeight);
 
 		Ray ray = Ray(cam, dir);
-		ReflectData reflectData = reflectRecurse(land, ray, reflectCount);
+		ReflectData!true reflectData = reflectRecurse!true(land, ray, reflectCount);
 
 		if (!reflectData.exits) {
 			captureCount += 1;
 			continue;
 		} else {
 			pathCounts[reflectData.reflectID] += 1;
+			bool reBounced = (reflectData.history[$ - 2] == reflectData.history[$ - 1]);
+			if (reBounced)
+				reBouncedCounts[reflectData.reflectID] += 1;
 		}
 	}
 	debug writefln("\rRaytracing: %u/%u", sampleCount, sampleCount);
 
 	foreach (uint i; 0 .. optionCount) {
-		csv.addEntry(i, reflectIDToString(i), pathCounts[i], pathCounts[i].to!float / sampleCount);
+		csv.addEntry(i, reflectIDToString(i), pathCounts[i], pathCounts[i].to!float / sampleCount, reBouncedCounts[i]
+				.to!float / sampleCount);
 	}
 	csv.save("../scripts/temp/dist_" ~ identifier ~ "_S.csv");
 }
@@ -223,7 +297,7 @@ void measure_shadowing() {
 		Vec!3 dir = (target - cam).normalize();
 		Ray ray = Ray(cam, dir);
 
-		ReflectData reflectData = reflectRecurse(land, ray, reflectCount);
+		ReflectData!false reflectData = reflectRecurse(land, ray, reflectCount);
 		data[reflectData.reflectID] += reflectData.exits;
 		// csv.addEntry(reflectData.exits, reflectData.reflectCount, reflectData.reflectID,
 		// 	reflectData.outDir.x, reflectData.outDir.y, reflectData.outDir.z);

@@ -248,23 +248,33 @@ unittest {
 	reflected.assertAlmostEquals(Vec!3(0.5, 0, 0.5).normalize());
 }
 
-ReflectData reflectRecurse(Landscape land, Ray ray, uint reflectCount) {
+auto reflectRecurse(bool trackHistory = false)(Landscape land, Ray ray, uint reflectCount) {
 	uint reflectID = 0;
+	static if (trackHistory)
+		uint[] history;
 	foreach (r; 0 .. reflectCount + 1) { //TODO: prefer not to use +1
 		Hit hit = traceLand(land, ray);
 		if (!hit.hit) {
 			assert(r > 0, "Initial ray missed landscape! " ~ ray.to!string);
-			return ReflectData(true, ray, r, reflectID);
+			static if (trackHistory)
+				return ReflectData!true(true, ray, r, reflectID, history);
+			else
+				return ReflectData!false(true, ray, r, reflectID);
 		}
-		if (r > 0)
+		if (r > 0) {
 			reflectID = 4 * reflectID + 4 + hit.face;
-		else
+		} else
 			reflectID = hit.face;
+		static if (trackHistory)
+			history ~= hit.peakID;
 		ray.dir = reflect(ray.dir, land.shape.normals[hit.face]);
 		ray.org = hit.pos;
 		ray.excludePeak = hit.peakID;
 	}
-	return ReflectData(false, ray, reflectCount);
+	static if (trackHistory)
+		return ReflectData!true(false, ray, reflectCount, reflectID, history);
+	else
+		return ReflectData!false(false, ray, reflectCount, reflectID);
 }
 
 unittest {

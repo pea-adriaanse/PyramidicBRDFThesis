@@ -15,9 +15,11 @@ struct Hit {
 	ubyte face;
 }
 
-struct ReflectData {
+struct ReflectData(bool trackHistory = false) {
 	bool exits;
 	Ray outRay;
 	uint reflectCount;
 	uint reflectID; // gives what normals were hit. (E,N,W,S)=(0,1,2,3) tree id.
+	static if (trackHistory)
+		uint[] history;
 }

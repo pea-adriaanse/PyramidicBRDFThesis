@@ -64,6 +64,11 @@ struct PyramidShape {
 		this.normalW = Vec!3(-normalX, 0, normalZ);
 		this.normalS = Vec!3(0, -normalX, normalZ);
 
+		import std.stdio;
+		File f = File("normals.txt", "w");
+		foreach(n; normals)
+			f.writeln(n);
+
 		this.E = Face([SE, NE], normalE);
 		this.N = Face([NE, NW], normalN);
 		this.W = Face([NW, SW], normalW);

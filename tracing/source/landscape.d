@@ -6,7 +6,7 @@ import pyramid_shape;
 import ray;
 import tracing;
 import vdmath;
-import vdmath.misc: degreesToRadians;
+import vdmath.misc : degreesToRadians;
 
 import std.algorithm.comparison : clamp;
 import std.algorithm.sorting : sort;
@@ -72,7 +72,7 @@ struct Landscape {
 		static foreach (i; 0 .. 3)
 			if (pos[i] < minBound[i] || pos[i] > maxBound[i])
 				return ret; // null
-		Vec!(3, double) local = (cast(Vec!(3,double)) pos) - minBound; // float rounding error causes issues
+		Vec!(3, double) local = (cast(Vec!(3, double)) pos) - minBound; // float rounding error causes issues
 		uint binX = clamp(cast(uint) floor(local.x / binWidth.x), 0, binCount - 1);
 		uint binY = clamp(cast(uint) floor(local.y / binWidth.y), 0, binCount - 1);
 		ret = Vec!(2, uint)(binX, binY);
@@ -199,7 +199,9 @@ struct Landscape {
 		return peaks;
 	}
 
-	void save(bool splitTriangles = true)(string fileName) {
+	void save(bool splitTriangles = true, bool globalBottom = false)(string fileName) {
+		if (globalBottom)
+			approxHeight = 1.0;
 		enforce(isValidFilename(fileName), "File name invalid: " ~ fileName);
 		Vec!3[5] shapeVertices = Vec!3(0, 0, 0) ~ shape.legs.dup;
 		shapeVertices[] = shapeVertices[] * (-approxHeight / shape.legs[0].z);
@@ -221,9 +223,13 @@ struct Landscape {
 
 		foreach (index, Vec!3 peak; parallel(this.peaks)) {
 			Vec!3[5] pyramidVertices = shapeVertices;
-			// pyramidVertices[] = pyramidVertices[] + peak; // Compiler bug'
-			foreach (ref v; pyramidVertices)
-				v = v + peak;
+			// pyramidVertices[] = pyramidVertices[] + peak; // Compiler bug
+			foreach (i, ref v; pyramidVertices) {
+				static if (globalBottom)
+					v = (v * peak.z) + peak;
+				else
+					v = v + peak;
+			}
 
 			static if (splitTriangles) {
 				vertices[index * vertCount .. (index + 1) * vertCount] = [
