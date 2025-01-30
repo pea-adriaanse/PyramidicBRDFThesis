@@ -1,0 +1,16 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/valid_input_range
+valid_input_range.so
+valid_input_range.dylib
+valid_input_range.dll
+valid_input_range.a
+valid_input_range.lib
+valid_input_range-test-*
+*.exe
+*.pdb
+*.o
+*.obj
+*.lst

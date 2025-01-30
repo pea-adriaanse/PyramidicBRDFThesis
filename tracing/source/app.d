@@ -51,7 +51,7 @@ void main(string[] args) {
 		return writeln("Choose:\n\t- reflectDist\n\t- experiment\n\t- generate\n\t- test");
 	switch (args[1]) {
 	case "measureBackBounceProb":
-		return measureBackBounceProb(args[2..5]);
+		return measureBackBounceProb(args[2 .. 5]);
 	case "reflectDist":
 		return measureReflectPathDist(args[2 .. $]);
 	case "experiment":
@@ -164,7 +164,7 @@ void measureBackBounceProb(string[] args) {
 void measureReflectPathDist(string[] args) {
 	rndGen().seed(1);
 
-	bool gridSample = false;
+	bool gridSample = true;
 	bool gridLand = false;
 
 	float width = 500;
@@ -215,8 +215,9 @@ void measureReflectPathDist(string[] args) {
 
 	Vec!3[] offsets;
 	if (gridSample) {
-		offsets = Landscape.createGrid(width * 2 / 3.0, sampleCount, 0);
-		sampleCount = sampleCount ^^ 2;
+		uint root = cast(uint) sqrt(cast(float) sampleCount);
+		enforce(sqrt(cast(float) sampleCount) == root); // whole root
+		offsets = Landscape.createGrid(width * 2 / 3.0, root, 0);
 		// Mat!4 = rotZ = []
 	} else
 		offsets = Landscape.createPoints(width * 2 / 3.0, sampleCount, 0);
@@ -238,7 +239,8 @@ void measureReflectPathDist(string[] args) {
 			continue;
 		} else {
 			pathCounts[reflectData.reflectID] += 1;
-			bool reBounced = (reflectData.history[$ - 2] == reflectData.history[$ - 1]);
+			bool reBounced = (reflectData.history.length >= 2 && reflectData.history[$ - 2] == reflectData
+					.history[$ - 1]);
 			if (reBounced)
 				reBouncedCounts[reflectData.reflectID] += 1;
 		}

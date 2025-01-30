@@ -1,0 +1,16 @@
+{
+	"authors": [
+		"Paul"
+	],
+	"copyright": "Copyright © 2024, Paul",
+	"dependencies": {
+		"pyd": "~>0.14.4",
+		"vdmath": "~>1.0.1"
+	},
+	"description": "A minimal D application.",
+	"license": "proprietary",
+	"name": "plot",
+	"subConfigurations": {
+		"pyd": "python310"
+	}
+}

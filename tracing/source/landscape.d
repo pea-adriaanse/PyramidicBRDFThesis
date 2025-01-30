@@ -127,7 +127,7 @@ struct Landscape {
 	}
 
 	static Vec!3[] createGrid(float width, float density, float height, bool center = true) {
-		uint root = cast(uint) sqrt(width ^^ 2 * density);
+		uint root = cast(uint) sqrt(width * density);
 		return createGrid(width, root, height, center);
 	}
 
