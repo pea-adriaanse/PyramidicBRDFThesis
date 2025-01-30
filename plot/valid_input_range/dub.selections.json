@@ -1,0 +1,7 @@
+{
+	"fileVersion": 1,
+	"versions": {
+		"pyd": "0.14.4",
+		"vdmath": "1.0.1"
+	}
+}

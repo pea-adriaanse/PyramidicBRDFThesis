@@ -102,9 +102,12 @@ void reflectDist(string[] args) {
     // exeFile.lock(); // try wait for issues? (race condition . . . but it actually works)
     // exeFile.unlock();
 
-    auto res1 = executeShell(
-        "cd ../tracing & tracing.exe reflectDist " ~ woString ~ ' ' ~ sampleCount
-            .to!string ~ ' ' ~ reflectCount.to!string ~ ' ' ~ identifier); // Turns out I can also use Redirect.stdin
+    string command = "cd ../tracing & tracing.exe reflectDist " ~ woString ~ ' ' ~ sampleCount
+            .to!string ~ ' ' ~ reflectCount.to!string ~ ' ' ~ identifier;
+
+    writeln("Shell command:\n"~command);
+
+    auto res1 = executeShell(command); // Turns out I can also use Redirect.stdin
     enforce(res1.status == 0, "Tracing Failed:\n" ~ res1.output);
     writeln(res1.output);
     writeln("Tracing finished");

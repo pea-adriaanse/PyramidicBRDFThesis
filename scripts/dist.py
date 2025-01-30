@@ -61,14 +61,14 @@ identifier = sys.argv[1]
 sampleCount = sys.argv[2]
 
 reflectIndexP, reflectIndexStrP, distP = readCSVProbs("./temp/dist_"+identifier+"_P.csv", 3)
-# reflectIndexL, reflectIndexStrL, distL = readCSVProbs("../iridescence/distLyanne.csv", 2)
+reflectIndexL, reflectIndexStrL, distL = readCSVProbs("./temp/dist_"+identifier+"_L.csv", 3)
 reflectIndexSpecular, reflectIndexStrSpecular, distSpecular = readCSVProbs("./temp/dist_"+identifier+"_S.csv", 3)
 specularRebounceProb = readCSVRebounceProbs("./temp/dist_"+identifier+"_S.csv", 4)
 
 plt.figure(figsize=(19.20,9.83))
 ax = plt.subplot()
 plt.bar(reflectIndexP, distP, 0.25, align="edge", label="BRDF_Paul", zorder=2)
-# plt.bar(reflectIndexL, distL, 0.25, align="edge", label="BRDF_Lyanne");
+# plt.bar(reflectIndexL, distL, 0.25, align="edge", label="BRDF_Lyanne", zorder=2)
 plt.bar(reflectIndexSpecular, distSpecular, -0.25, align="edge", label="Mesh"+"("+sampleCount+"samples)")
 
 plt.bar(reflectIndexSpecular, specularRebounceProb, -0.25, align="edge", bottom= np.array(distSpecular)-np.array(specularRebounceProb), label="rebounce")
