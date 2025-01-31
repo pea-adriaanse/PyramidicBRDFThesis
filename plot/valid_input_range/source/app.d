@@ -91,8 +91,9 @@ double internalExpression(alias Dfunc)(double y, double z) {
 	// return Tdni(D, internal_theta, internal_phi, z);
 }
 
-double Tnormal(double theta, double phi, double z){
-	return (0.4606604225*sin(theta)*cos(phi) + 1.30811617*cos(theta))*exp(-1.203167728*z^^2);
+double Tnormal(double theta, double phi, double z) {
+	return (0.4606604225 * sin(theta) * cos(phi) + 1.30811617 * cos(theta)) * exp(
+		-1.203167728 * z ^^ 2);
 }
 
 // double T1ni(double phi, double theta, double y, double z) {
@@ -156,8 +157,8 @@ double backBounce(double theta, double phi) {
 	}
 
 	IntegralBounds zBounds = IntegralBounds(-4, 0, 100);
-	IntegralBounds yBounds1 = IntegralBounds(YminFactor * -4, YmidFactor * -4, 256); // Ensure bounds by making expression evaluate to 0 outside correct Y bounds.
-	IntegralBounds yBounds2 = IntegralBounds(YmidFactor * -4, YmaxFactor * -4, 256); // ^
+	IntegralBounds yBounds1 = IntegralBounds(YminFactor * -4, YmidFactor * -4, 512); // Ensure bounds by making expression evaluate to 0 outside correct Y bounds.
+	IntegralBounds yBounds2 = IntegralBounds(YmidFactor * -4, YmaxFactor * -4, 512); // ^
 
 	internal_theta = theta;
 	internal_phi = phi;
@@ -178,7 +179,7 @@ double backBounce(double theta, double phi) {
 struct IntegralBounds {
 	double min;
 	double max;
-	uint stepCount;
+	uint stepCount; // use stepCount to improve precision.
 }
 
 string _expressionWrapped(size_t count) {
@@ -232,11 +233,20 @@ bool isValidAngle(double theta, double phi) {
 	return isValid(inDir);
 }
 
+struct Bounds(T) {
+	T min;
+	T max;
+	T stepSize;
+}
+
 void main(string[] args) {
+	Bounds!double thetaBounds = Bounds!double(0, PI_2, PI / 128);
+	Bounds!double phiBounds = Bounds!double(0, PI, PI / 128);
 	InterpContext context = new InterpContext();
 	// plotFunction(context, PI / 256, &backBounce);
-	plotFunction(context, PI / 128, &backBounce);
-	// plotFunction(context, PI / 256, &isValidAngle);
+	// plotFunction(context, PI / 64, &backBounce);
+	plotFunction(context, thetaBounds, phiBounds, &backBounce, "backBounce.bin");
+	// plotFunction(context, thetaBounds, phiBounds, &isValidAngle, "backBounce.bin");
 	// plotFunction(context, 0.02, &TEST, -0.1);
 	// plotFunction(context, 0.02, &TEST, -0.2);
 	// plotFunction(context, 0.02, &TEST, -0.3);
@@ -253,23 +263,20 @@ void main(string[] args) {
 	// plotFunction(context, 0.02, &TEST, -1.4);
 }
 
-void plotFunction(T2, T, Args...)(InterpContext context, double stepsize, T2 function(T, T, Args) func, Args args) {
-	double[2] xBounds = [-PI_2, PI_2];
-	double[2] yBounds = [-PI, PI];
+void plotFunction(T2, T, Args...)(InterpContext context, Bounds!T xBounds, Bounds!T yBounds, T2 function(T, T, Args) func, string savePath, Args args) {
+	context.xBounds = *(cast(T[3]*) &xBounds);
+	context.yBounds = *(cast(T[3]*) &yBounds);
 
-	context.xBounds = xBounds;
-	context.yBounds = yBounds;
+	T[] xCoords = iota(xBounds.min, xBounds.max, xBounds.stepSize).array();
+	T[] yCoords = iota(yBounds.min, yBounds.max, yBounds.stepSize).array();
 
-	double[] xCoords = iota(xBounds[0], xBounds[1], stepsize).array();
-	double[] yCoords = iota(yBounds[0], yBounds[1], stepsize).array();
-
-	double[][] xs = new double[][yCoords.length];
-	double[][] ys = new double[][yCoords.length];
+	T[][] xs = new T[][yCoords.length];
+	T[][] ys = new T[][yCoords.length];
 	T2[][] zs = new T2[][yCoords.length];
 
 	foreach (yIndex, y; yCoords) {
-		xs[yIndex] = new double[xCoords.length];
-		ys[yIndex] = new double[xCoords.length];
+		xs[yIndex] = new T[xCoords.length];
+		ys[yIndex] = new T[xCoords.length];
 		zs[yIndex] = new T2[xCoords.length];
 		foreach (xIndex, x; xCoords) {
 			xs[yIndex][xIndex] = x;
@@ -278,11 +285,36 @@ void plotFunction(T2, T, Args...)(InterpContext context, double stepsize, T2 fun
 		}
 	}
 
+	saveTable(xBounds, yBounds, zs, savePath);
+
 	context.xs = d_to_python_numpy_ndarray(xs);
 	context.ys = d_to_python_numpy_ndarray(ys);
 	context.zs = d_to_python_numpy_ndarray(zs);
 
 	context.py_stmts(script);
+}
+
+void saveTable(T, T2)(Bounds!T xBounds, Bounds!T yBounds, T2[][] data, string path) {
+	File file = File(path, "w");
+	ubyte[] xBoundsData = cast(ubyte[])(*(cast(T[3]*)&xBounds));
+	ubyte[] yBoundsData = cast(ubyte[])(*(cast(T[3]*)&yBounds));
+	string header = T.stringof ~ ' ' ~ T2.stringof ~ '\n'; // Data Types
+	header ~= xBoundsData.length.to!string ~ ' ' ~ yBoundsData.length.to!string ~ '\n'; // Bounds data lengths
+	header ~= data.length.to!string ~ ' ' ~ data[0].length.to!string ~ '\n'; // Dimensions
+	file.write(header);
+
+	file.rawWrite(xBoundsData);
+	file.rawWrite(yBoundsData);
+
+	ubyte[] rawData;
+	foreach (T2[] segment; data)
+		rawData ~= cast(ubyte[]) segment;
+	file.rawWrite(rawData);
+	file.close();
+
+	writeln(data);
+
+	writeln(i"Data Byte Size:$(rawData.length)B");
 }
 
 // void main(string[] args) {
