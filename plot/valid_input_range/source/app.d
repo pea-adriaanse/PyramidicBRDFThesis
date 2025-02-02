@@ -134,7 +134,7 @@ double backBounce(double theta, double phi) {
 	Vec!(3, double) inDir = getInDir(theta, phi);
 	// Test for invalid preconditions
 	if (!isValid(inDir))
-		return double.nan;
+		return 0; // double.nan also viable but problematic with interpolation;
 
 	// Test for guaranteed backbounce
 	double d1_test = D1n(theta, phi, 0, -1);
@@ -235,7 +235,7 @@ bool isValidAngle(double theta, double phi) {
 
 struct Bounds(T) {
 	T min;
-	T max;
+	T max; // inclusive!
 	T stepSize;
 }
 
@@ -245,8 +245,8 @@ void main(string[] args) {
 	InterpContext context = new InterpContext();
 	// plotFunction(context, PI / 256, &backBounce);
 	// plotFunction(context, PI / 64, &backBounce);
-	plotFunction(context, thetaBounds, phiBounds, &backBounce, "backBounce.bin");
-	// plotFunction(context, thetaBounds, phiBounds, &isValidAngle, "backBounce.bin");
+	// plotFunction(context, thetaBounds, phiBounds, &backBounce, "backBounce.bin");
+	plotFunction(context, thetaBounds, phiBounds, &isValidAngle, null);
 	// plotFunction(context, 0.02, &TEST, -0.1);
 	// plotFunction(context, 0.02, &TEST, -0.2);
 	// plotFunction(context, 0.02, &TEST, -0.3);
@@ -264,11 +264,11 @@ void main(string[] args) {
 }
 
 void plotFunction(T2, T, Args...)(InterpContext context, Bounds!T xBounds, Bounds!T yBounds, T2 function(T, T, Args) func, string savePath, Args args) {
-	context.xBounds = *(cast(T[3]*) &xBounds);
-	context.yBounds = *(cast(T[3]*) &yBounds);
+	context.xBounds = *(cast(T[3]*)&xBounds);
+	context.yBounds = *(cast(T[3]*)&yBounds);
 
-	T[] xCoords = iota(xBounds.min, xBounds.max, xBounds.stepSize).array();
-	T[] yCoords = iota(yBounds.min, yBounds.max, yBounds.stepSize).array();
+	T[] xCoords = iota(xBounds.min, xBounds.max + xBounds.stepSize, xBounds.stepSize).array();
+	T[] yCoords = iota(yBounds.min, yBounds.max + yBounds.stepSize, yBounds.stepSize).array();
 
 	T[][] xs = new T[][yCoords.length];
 	T[][] ys = new T[][yCoords.length];
@@ -285,7 +285,8 @@ void plotFunction(T2, T, Args...)(InterpContext context, Bounds!T xBounds, Bound
 		}
 	}
 
-	saveTable(xBounds, yBounds, zs, savePath);
+	if (savePath !is null && savePath.length > 0)
+		saveTable(xBounds, yBounds, zs, savePath);
 
 	context.xs = d_to_python_numpy_ndarray(xs);
 	context.ys = d_to_python_numpy_ndarray(ys);
