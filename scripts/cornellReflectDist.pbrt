@@ -8,6 +8,8 @@ Integrator "path" "integer maxdepth" 5 "integer maxiridepth" 5
 Film "rgb" "string filename" "cornell.png"
      "integer xresolution" [<RESOLUTION>] "integer yresolution" [<RESOLUTION>]
 
+BackBounce "../iridescence/backBounce.bin"
+
 WorldBegin
 
 MakeNamedMaterial "CustomMat"
@@ -19,6 +21,7 @@ MakeNamedMaterial "CustomMat"
     "string setting" "printDist"
     "vector3 wo" <WO_VECTOR>
     "string distOutFile" <DIST_OUTPUT_FILE>
+    "bool rebounce" <REBOUNCE>
 
 AttributeBegin
   AreaLightSource "diffuse" "rgb L" [1 1 1] "float scale" 10

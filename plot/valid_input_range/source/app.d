@@ -84,16 +84,25 @@ double internalExpression(alias Dfunc)(double y, double z) {
 	if (y <= internal_yMinFactor * z || y >= internal_yMaxFactor * z)
 		return 0; // Ensures bounds.
 	double D = Dfunc(internal_theta, internal_phi, y, z);
-	// if (D <= 0)
-	// 	return 0; // Edge case, likely due to doubleing point error.
+	if (D <= 0)
+		return 0; // Edge case, likely due to floating point error.
 
-	return Tnormal(internal_theta, internal_phi, z);
-	// return Tdni(D, internal_theta, internal_phi, z);
+	// return Tnormal(internal_theta, internal_phi, z);
+	return Tdni(D, internal_theta, internal_phi, z);
 }
 
-double Tnormal(double theta, double phi, double z) {
-	return (0.4606604225 * sin(theta) * cos(phi) + 1.30811617 * cos(theta)) * exp(
-		-1.203167728 * z ^^ 2);
+double TnormaliCropped(double y, double z) {
+	if (y <= internal_yMinFactor * z || y >= internal_yMaxFactor * z)
+		return 0; // Ensures bounds.
+	return Tnormali(internal_theta, internal_phi, z);
+}
+
+double Tnormali(double theta, double phi, double z) {
+	return 1.225283594 * exp(-1.203167728 * z ^^ 2);
+}
+
+double Tnormal() {
+	return 0.7210541991;
 }
 
 // double T1ni(double phi, double theta, double y, double z) {
@@ -105,17 +114,13 @@ double Tnormal(double theta, double phi, double z) {
 // }
 
 double Tdni(double D, double theta, double phi, double z) {
-	// assert(D >= 0, D.to!string);
-	return -1.386858298 * (-1 + exp(
-			0.2822198290 * (
-			1.000000000 * sin(theta) * cos(
-			phi) + 2.839653910 * cos(theta)) * D * (0.4716113289 * D * sin(
-			theta) * cos(phi) - 0.1660805661 * D * cos(theta) + 1.000000000 * z))) * exp(
-		-1.203167728 * z ^^ 2) * (
-		0.3321611322 * sin(theta) * cos(phi) + 0.9432226578 * cos(theta));
+	assert(D >= 0, D.to!string);
+	return -1.225283594 * exp(-1.203167728 * z ^^ 2) *
+		(
+			exp(0.2822198290 * D * (sin(theta) * cos(phi) + 2.839653910 * cos(theta)) * (
+				0.4716113289 * sin(theta) * cos(phi) * D - 0.1660805661 * cos(theta) * D + z))
+				- 1);
 }
-
-// Y factors (multiply with z)
 
 double Yminn_z() {
 	return 0.708039467;
@@ -130,16 +135,33 @@ double Ymid_z(double phi) {
 	return 1 / (0.6731323870 + 2.363049614 * (cos(phi) / sin(phi)));
 }
 
+double backBounceNormal(double theta, double phi) {
+	Vec!(3, double) inDir = getInDir(theta, phi);
+	if (!isValid(inDir))
+		return double.nan;
+
+	IntegralBounds zBounds = IntegralBounds(-4, 0, 100);
+	IntegralBounds yBounds = IntegralBounds(Yminn_z() * -4, Ymaxn_z() * -4, 512);
+	internal_theta = theta;
+	internal_phi = phi;
+	internal_yMinFactor = Yminn_z();
+	internal_yMaxFactor = Ymaxn_z();
+	double normalFactor = integrate(&TnormaliCropped, yBounds, zBounds);
+	return normalFactor;
+}
+
 double backBounce(double theta, double phi) {
+	phi = -phi; // Flip sign to sidestep numeric discontinuity.
+
 	Vec!(3, double) inDir = getInDir(theta, phi);
 	// Test for invalid preconditions
 	if (!isValid(inDir))
-		return 0; // double.nan also viable but problematic with interpolation;
+		return 0.0; // double.nan also viable but problematic with interpolation;
 
 	// Test for guaranteed backbounce
 	double d1_test = D1n(theta, phi, 0, -1);
 	double d2_test = D2n(theta, phi, 0, -1);
-	if (d1_test < 0 && d2_test < 0)
+	if (d1_test <= 0 && d2_test <= 0)
 		return 1.0;
 
 	double YminFactor = Yminn_z();
@@ -157,8 +179,8 @@ double backBounce(double theta, double phi) {
 	}
 
 	IntegralBounds zBounds = IntegralBounds(-4, 0, 100);
-	IntegralBounds yBounds1 = IntegralBounds(YminFactor * -4, YmidFactor * -4, 512); // Ensure bounds by making expression evaluate to 0 outside correct Y bounds.
-	IntegralBounds yBounds2 = IntegralBounds(YmidFactor * -4, YmaxFactor * -4, 512); // ^
+	IntegralBounds yBounds1 = IntegralBounds(YminFactor * -4, YmidFactor * -4, 1024); // Ensure bounds by making expression evaluate to 0 outside correct Y bounds.
+	IntegralBounds yBounds2 = IntegralBounds(YmidFactor * -4, YmaxFactor * -4, 1024); // ^
 
 	internal_theta = theta;
 	internal_phi = phi;
@@ -172,7 +194,7 @@ double backBounce(double theta, double phi) {
 	auto internalExpression2 = &internalExpression!(D2n);
 	double integral2 = integral2Zero ? 0 : integrate(internalExpression2, yBounds2, zBounds);
 
-	double finalIntegral = integral1 + integral2;
+	double finalIntegral = (integral1 + integral2) / Tnormal();
 	return finalIntegral;
 }
 
@@ -240,27 +262,15 @@ struct Bounds(T) {
 }
 
 void main(string[] args) {
-	Bounds!double thetaBounds = Bounds!double(0, PI_2, PI / 128);
-	Bounds!double phiBounds = Bounds!double(0, PI, PI / 128);
+	Bounds!double thetaBounds = Bounds!double(0, PI_2, PI / 256);
+	Bounds!double phiBounds = Bounds!double(0, PI, PI / 256);
+	// Bounds!double thetaBounds = Bounds!double(0, PI_2, PI / 128);
+	// Bounds!double phiBounds = Bounds!double(0, PI, PI / 128);
 	InterpContext context = new InterpContext();
-	// plotFunction(context, PI / 256, &backBounce);
-	// plotFunction(context, PI / 64, &backBounce);
-	// plotFunction(context, thetaBounds, phiBounds, &backBounce, "backBounce.bin");
-	plotFunction(context, thetaBounds, phiBounds, &isValidAngle, null);
-	// plotFunction(context, 0.02, &TEST, -0.1);
-	// plotFunction(context, 0.02, &TEST, -0.2);
-	// plotFunction(context, 0.02, &TEST, -0.3);
-	// plotFunction(context, 0.02, &TEST, -0.4);
-	// plotFunction(context, 0.02, &TEST, -0.5);
-	// plotFunction(context, 0.02, &TEST, -0.6);
-	// plotFunction(context, 0.02, &TEST, -0.7);
-	// plotFunction(context, 0.02, &TEST, -0.8);
-	// plotFunction(context, 0.02, &TEST, -0.9);
-	// plotFunction(context, 0.02, &TEST, -1.0);
-	// plotFunction(context, 0.02, &TEST, -1.1);
-	// plotFunction(context, 0.02, &TEST, -1.2);
-	// plotFunction(context, 0.02, &TEST, -1.3);
-	// plotFunction(context, 0.02, &TEST, -1.4);
+	// plotFunction(context, thetaBounds, phiBounds, &isValidAngle, null);
+	plotFunction(context, thetaBounds, phiBounds, &backBounce, "backBounce.bin");
+	// plotFunction(context, thetaBounds, phiBounds, &backBounce, null);
+	// plotFunction(context, thetaBounds, phiBounds, &backBounceNormal, null);
 }
 
 void plotFunction(T2, T, Args...)(InterpContext context, Bounds!T xBounds, Bounds!T yBounds, T2 function(T, T, Args) func, string savePath, Args args) {
@@ -313,7 +323,7 @@ void saveTable(T, T2)(Bounds!T xBounds, Bounds!T yBounds, T2[][] data, string pa
 	file.rawWrite(rawData);
 	file.close();
 
-	writeln(data);
+	// writeln(data);
 
 	writeln(i"Data Byte Size:$(rawData.length)B");
 }

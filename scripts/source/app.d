@@ -10,13 +10,14 @@ import std.exception : enforce;
 void main(string[] args) {
 	if (args.length == 1)
 		args ~= ["8", "35.7", "0", "4000", "2", "false", "test"];
-	assert(args.length == 8, "Need 7 arguments: (polarAngleSplitCount polarAngleMax azimuthalAngle sampleCount reflectCount name parallel)");
+	assert(args.length == 9, "Need 7 arguments: (polarAngleSplitCount polarAngleMax azimuthalAngle sampleCount reflectCount name rebounce parallel)");
 	uint polarAngleSplitCount = args[1].to!uint;
 	float polarAngleMax = args[2].to!float;
 	assert(polarAngleMax > -90 && polarAngleMax < 90, "Need polarAngleMax between -90 and 90 (exclusively), but got: " ~ args[2]);
 
-	string name = args[$ - 2];
+	string name = args[$ - 3];
 	bool runParallel = args[$ - 1].to!bool;
+	bool rebounce = args[$ - 2].to!bool;
 	args = args[0] ~ args[2 .. $ - 1];
 
 	auto res = executeShell("cd ../iridescence & cmake --build --preset cpuRelease");

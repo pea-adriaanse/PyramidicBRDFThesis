@@ -17,7 +17,7 @@ ax.plot_surface(xs,ys,zs, rcount=len(xs), )
 ax.set(xlim=xBounds[0:2],ylim=yBounds[0:2])
 ax.set_xlabel("$theta$")
 ax.set_ylabel("$phi$")
-ax.set_zlim(-1, 1)
+# ax.set_zlim(-1, 1)
 plt.show()
 
 # ax = plt.figure().add_subplot(projection='3d')
