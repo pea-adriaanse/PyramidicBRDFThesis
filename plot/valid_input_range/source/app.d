@@ -262,14 +262,22 @@ struct Bounds(T) {
 }
 
 void main(string[] args) {
-	Bounds!double thetaBounds = Bounds!double(0, PI_2, PI / 256);
-	Bounds!double phiBounds = Bounds!double(0, PI, PI / 256);
-	// Bounds!double thetaBounds = Bounds!double(0, PI_2, PI / 128);
-	// Bounds!double phiBounds = Bounds!double(0, PI, PI / 128);
 	InterpContext context = new InterpContext();
-	// plotFunction(context, thetaBounds, phiBounds, &isValidAngle, null);
+	Bounds!double thetaBounds = Bounds!double(0, PI_2, PI / 128);
+	Bounds!double phiBounds = Bounds!double(0, PI, PI / 128);
 	plotFunction(context, thetaBounds, phiBounds, &backBounce, "backBounce.bin");
+
+	// double function(double, double) xFunc = (double d, double e) => d+e/4;
+	// plotFunction(context, thetaBounds, phiBounds, xFunc, "backBounce.bin");
+
+	// import table;
+	// BRDF brdf = new BRDF("backBounce.bin");
+	// brdf.readTable(degreesToRadians(15.0), 0).writeln;
+	
+	// Bounds!double thetaBounds = Bounds!double(-PI_2, PI_2, PI / 32);
+	// Bounds!double phiBounds = Bounds!double(-PI, PI, PI / 32);
 	// plotFunction(context, thetaBounds, phiBounds, &backBounce, null);
+	// plotFunction(context, thetaBounds, phiBounds, &isValidAngle, null);
 	// plotFunction(context, thetaBounds, phiBounds, &backBounceNormal, null);
 }
 
@@ -277,8 +285,8 @@ void plotFunction(T2, T, Args...)(InterpContext context, Bounds!T xBounds, Bound
 	context.xBounds = *(cast(T[3]*)&xBounds);
 	context.yBounds = *(cast(T[3]*)&yBounds);
 
-	T[] xCoords = iota(xBounds.min, xBounds.max + xBounds.stepSize, xBounds.stepSize).array();
-	T[] yCoords = iota(yBounds.min, yBounds.max + yBounds.stepSize, yBounds.stepSize).array();
+	T[] xCoords = iota(xBounds.min, xBounds.max + xBounds.stepSize / 2, xBounds.stepSize).array();
+	T[] yCoords = iota(yBounds.min, yBounds.max + yBounds.stepSize / 2, yBounds.stepSize).array();
 
 	T[][] xs = new T[][yCoords.length];
 	T[][] ys = new T[][yCoords.length];
@@ -311,7 +319,7 @@ void saveTable(T, T2)(Bounds!T xBounds, Bounds!T yBounds, T2[][] data, string pa
 	ubyte[] yBoundsData = cast(ubyte[])(*(cast(T[3]*)&yBounds));
 	string header = T.stringof ~ ' ' ~ T2.stringof ~ '\n'; // Data Types
 	header ~= xBoundsData.length.to!string ~ ' ' ~ yBoundsData.length.to!string ~ '\n'; // Bounds data lengths
-	header ~= data.length.to!string ~ ' ' ~ data[0].length.to!string ~ '\n'; // Dimensions
+	header ~= data[0].length.to!string ~ ' ' ~ data.length.to!string ~ '\n'; // Dimensions
 	file.write(header);
 
 	file.rawWrite(xBoundsData);

@@ -164,7 +164,7 @@ void measureBackBounceProb(string[] args) {
 void measureReflectPathDist(string[] args) {
 	rndGen().seed(1);
 
-	bool gridSample = true;
+	bool gridSample = false;
 	bool gridLand = false;
 
 	float width = 500;

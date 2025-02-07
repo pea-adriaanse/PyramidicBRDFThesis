@@ -5,7 +5,7 @@ Camera "perspective" "float fov" <FOV>
 
 Sampler "halton" "integer pixelsamples" 1
 Integrator "path" "integer maxdepth" 5 "integer maxiridepth" 5
-Film "rgb" "string filename" "cornell.png"
+Film "rgb" "string filename" "temp.png"
      "integer xresolution" [<RESOLUTION>] "integer yresolution" [<RESOLUTION>]
 
 BackBounce "../iridescence/backBounce.bin"
