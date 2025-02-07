@@ -1,0 +1,16 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/plot
+plot.so
+plot.dylib
+plot.dll
+plot.a
+plot.lib
+plot-test-*
+*.exe
+*.pdb
+*.o
+*.obj
+*.lst

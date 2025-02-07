@@ -12,41 +12,46 @@ import core.stdc.stdio : fread;
 import vdmath;
 import vdmath.misc;
 import std.math : PI;
-import std.stdio: File;
+import std.stdio : File;
 
 void reflectDist(string[] args) {
     Vec!3 wo;
 
     float polar;
     float azimuth;
-    switch (args.length) {
-    case 5:
-        polar = degreesToRadians(args[1].to!float);
-        azimuth = degreesToRadians(args[2].to!float);
-        wo.x = sin(polar) * cos(azimuth);
-        wo.y = sin(polar) * sin(azimuth);
-        wo.z = cos(polar);
-        break;
-    case 6:
-        wo.x = args[1].to!float;
-        wo.y = args[2].to!float;
-        wo.z = args[3].to!float;
-        polar = acos(wo.z);
-        if (polar == 0)
-            azimuth = 0;
-        else
-            azimuth = atan2(wo.y, wo.x);
-        if (azimuth < 0)
-            azimuth += PI;
-        break;
-    default:
-        assert(0, "Need 4/5 arguments: (wo.x wo.y wo.z sampleCount reflectCount) / (polarAngle azimuthalAngle sampleCount reflectCount) but got: " ~ args
+
+    if (args.length != 7)
+        assert(0, "Need 7 arguments: (polarAngle azimuthalAngle sampleCount reflectCount name) but got: " ~ args
                 .length.to!string);
-    }
+    // switch (args.length) {
+    // case 6:
+    polar = degreesToRadians(args[1].to!float);
+    azimuth = degreesToRadians(args[2].to!float);
+    wo.x = sin(polar) * cos(azimuth);
+    wo.y = sin(polar) * sin(azimuth);
+    wo.z = cos(polar);
+    // break;
+    // case 7:
+    //     wo.x = args[1].to!float;
+    //     wo.y = args[2].to!float;
+    //     wo.z = args[3].to!float;
+    //     polar = acos(wo.z);
+    //     if (polar == 0)
+    //         azimuth = 0;
+    //     else
+    //         azimuth = atan2(wo.y, wo.x);
+    //     if (azimuth < 0)
+    //         azimuth += PI;
+    //     break;
+    // default:
+
     wo = wo.normalize();
-    uint sampleCount = args[$ - 2].to!uint;
-    uint reflectCount = args[$ - 1].to!uint;
-    string identifier = format("t%.2f_f%.2f", radiansToDegrees(polar), radiansToDegrees(azimuth));
+    uint sampleCount = args[$ - 4].to!uint;
+    uint reflectCount = args[$ - 3].to!uint;
+    string name = args[$ - 2];
+    bool rebounce = args[$ - 1].to!bool;
+    string identifier = format("t%.2f_f%.2f_%s_rebounce=%s", radiansToDegrees(polar), radiansToDegrees(
+            azimuth), name, rebounce ? "true" : "false");
 
     uint resolution = 400;
     float fov = 90;
@@ -61,7 +66,8 @@ void reflectDist(string[] args) {
         "FOV": fov.to!string, "Z": Z.to!string,
         "REFLECT_COUNT": reflectCount.to!string,
         "RESOLUTION": resolution.to!string,
-        "WO_VECTOR": "[ " ~ woString ~ " ]"
+        "WO_VECTOR": "[ " ~ woString ~ " ]",
+        "REBOUNCE": rebounce.to!string()
     ];
     for (int usePaul = 0; usePaul < 2; usePaul++) {
         string cornellFileText = readText("cornellReflectDist.pbrt");
@@ -75,8 +81,9 @@ void reflectDist(string[] args) {
 
         string iridescenceArgs = format(
             "../scripts/%s --spp %u --pixel %u,%u", fileName, 1, pixelX, pixelY); // Don't need multiple samples for brdf distribution
-        auto res2 = executeShell(
-            `cd ../iridescence & .\build\cpu\Release\pbrt.exe ` ~ iridescenceArgs);
+        string command = `cd ../iridescence & .\build\cpu\Release\pbrt.exe ` ~ iridescenceArgs;
+        auto res2 = executeShell(command);
+        writeln("Iridescence shell command:\n" ~ command);
         enforce(res2.status == 0, "Iridescence Failed:\n" ~ res2.output);
         writeln(res2.output);
     }
@@ -97,13 +104,16 @@ void reflectDist(string[] args) {
     // woBinary.close();
     // writeln("wo: ", wo);
 
-    File exeFile = File("../tracing/tracing.exe");
-    exeFile.lock(); // try wait for issues? (race condition . . . but it actually works)
-    exeFile.unlock();
+    // File exeFile = File("../tracing/tracing.exe");
+    // exeFile.lock(); // try wait for issues? (race condition . . . but it actually works)
+    // exeFile.unlock();
 
-    auto res1 = executeShell(
-        "cd ../tracing & dub run --build=release -- reflectDist " ~ woString ~ ' ' ~ sampleCount
-            .to!string ~ ' ' ~ reflectCount.to!string ~ ' ' ~ identifier); // Turns out I can also use Redirect.stdin
+    string command = "cd ../tracing & tracing.exe reflectDist " ~ woString ~ ' ' ~ sampleCount
+        .to!string ~ ' ' ~ reflectCount.to!string ~ ' ' ~ identifier;
+
+    writeln("Shell command:\n" ~ command);
+
+    auto res1 = executeShell(command); // Turns out I can also use Redirect.stdin
     enforce(res1.status == 0, "Tracing Failed:\n" ~ res1.output);
     writeln(res1.output);
     writeln("Tracing finished");

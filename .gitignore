@@ -4,3 +4,6 @@ D/
 ldc2-1.39.0-windows-x64/
 *.csv
 *.ply
+
+scripts/images/
+scripts/temp/

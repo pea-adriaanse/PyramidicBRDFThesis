@@ -4,9 +4,15 @@
 	],
 	"copyright": "Copyright © 2024, Paul A.",
 	"dependencies": {
-		"vdmath": "~>1.0.0"
+		"vdmath": "~>1.0.0",
+		"matplotlib-d": {
+			"path": "E:/Code/D/matplotlib-d/"
+		}
 	},
 	"description": "Tracing Tests",
 	"license": "proprietary",
-	"name": "tracing"
+	"name": "tracing",
+	"environments": {
+		"MATPLOTLIB_D_PYTHON": "C:/Users/Paul/AppData/Local/Programs/Python/Python310/python.exe"
+	}
 }
