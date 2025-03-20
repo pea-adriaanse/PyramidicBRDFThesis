@@ -1,8 +1,0 @@
-{
-	"fileVersion": 1,
-	"versions": {
-		"matplotlib-d": {"path":"E:/Code/D/matplotlib-d/"},
-		"pyd": "0.14.4",
-		"vdmath": "1.0.1"
-	}
-}

@@ -4,7 +4,7 @@
 	],
 	"copyright": "Copyright © 2024, Paul",
 	"dependencies": {
-		"pyd": "~>0.14.4",
+		"pyd": "~>0.14.5",
 		"vdmath": "~>1.0.1"
 	},
 	"description": "A minimal D application.",

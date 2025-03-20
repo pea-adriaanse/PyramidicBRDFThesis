@@ -263,9 +263,9 @@ struct Bounds(T) {
 
 void main(string[] args) {
 	InterpContext context = new InterpContext();
-	Bounds!double thetaBounds = Bounds!double(0, PI_2, PI / 128);
-	Bounds!double phiBounds = Bounds!double(0, PI, PI / 128);
-	plotFunction(context, thetaBounds, phiBounds, &backBounce, "backBounce.bin");
+	// Bounds!double thetaBounds = Bounds!double(0, PI_2, PI / 128);
+	// Bounds!double phiBounds = Bounds!double(0, PI, PI / 128);
+	// plotFunction(context, thetaBounds, phiBounds, &backBounce, "backBounce.bin");
 
 	// double function(double, double) xFunc = (double d, double e) => d+e/4;
 	// plotFunction(context, thetaBounds, phiBounds, xFunc, "backBounce.bin");
@@ -274,10 +274,10 @@ void main(string[] args) {
 	// BRDF brdf = new BRDF("backBounce.bin");
 	// brdf.readTable(degreesToRadians(15.0), 0).writeln;
 	
-	// Bounds!double thetaBounds = Bounds!double(-PI_2, PI_2, PI / 32);
-	// Bounds!double phiBounds = Bounds!double(-PI, PI, PI / 32);
+	Bounds!double thetaBounds = Bounds!double(-PI_2, PI_2, PI / 32);
+	Bounds!double phiBounds = Bounds!double(-PI, PI, PI / 32);
 	// plotFunction(context, thetaBounds, phiBounds, &backBounce, null);
-	// plotFunction(context, thetaBounds, phiBounds, &isValidAngle, null);
+	plotFunction(context, thetaBounds, phiBounds, &isValidAngle, null);
 	// plotFunction(context, thetaBounds, phiBounds, &backBounceNormal, null);
 }
 
