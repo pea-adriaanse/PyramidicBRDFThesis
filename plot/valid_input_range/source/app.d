@@ -113,13 +113,22 @@ double Tnormal() {
 
 // }
 
+// Incorrect: does not add -dz/(df tan(alpha)) factor to local integral
+// double Tdni(double D, double theta, double phi, double z) {
+// 	assert(D >= 0, D.to!string);
+// 	return -1.225283594 * exp(-1.203167728 * z ^^ 2) *
+// 		(
+// 			exp(0.2822198290 * D * (sin(theta) * cos(phi) + 2.839653910 * cos(theta)) * (
+// 				0.4716113289 * sin(theta) * cos(phi) * D - 0.1660805661 * cos(theta) * D + z))
+// 				- 1);
+// }
+
 double Tdni(double D, double theta, double phi, double z) {
 	assert(D >= 0, D.to!string);
-	return -1.225283594 * exp(-1.203167728 * z ^^ 2) *
-		(
-			exp(0.2822198290 * D * (sin(theta) * cos(phi) + 2.839653910 * cos(theta)) * (
-				0.4716113289 * sin(theta) * cos(phi) * D - 0.1660805661 * cos(theta) * D + z))
-				- 1);
+	return -1.225283594 * (-1 + exp(
+			-0.2852077020 * (sin(theta) * cos(phi) - 3.510527281 * cos(theta)) * D * (
+			0.4716113289 * D * sin(theta) * cos(phi) - 0.1660805661 * D * cos(theta) + z))) * exp(
+		-1.203167728 * z ^^ 2);
 }
 
 double Yminn_z() {
@@ -263,9 +272,9 @@ struct Bounds(T) {
 
 void main(string[] args) {
 	InterpContext context = new InterpContext();
-	// Bounds!double thetaBounds = Bounds!double(0, PI_2, PI / 128);
-	// Bounds!double phiBounds = Bounds!double(0, PI, PI / 128);
-	// plotFunction(context, thetaBounds, phiBounds, &backBounce, "backBounce.bin");
+	Bounds!double thetaBounds = Bounds!double(0, PI_2, PI / 128);
+	Bounds!double phiBounds = Bounds!double(0, PI, PI / 128);
+	plotFunction(context, thetaBounds, phiBounds, &backBounce, "backBounce.bin");
 
 	// double function(double, double) xFunc = (double d, double e) => d+e/4;
 	// plotFunction(context, thetaBounds, phiBounds, xFunc, "backBounce.bin");
@@ -273,11 +282,12 @@ void main(string[] args) {
 	// import table;
 	// BRDF brdf = new BRDF("backBounce.bin");
 	// brdf.readTable(degreesToRadians(15.0), 0).writeln;
-	
-	Bounds!double thetaBounds = Bounds!double(-PI_2, PI_2, PI / 32);
-	Bounds!double phiBounds = Bounds!double(-PI, PI, PI / 32);
+
+	// Bounds!double thetaBounds = Bounds!double(-PI_2, PI_2, PI / 32);
+	// Bounds!double phiBounds = Bounds!double(-PI, PI, PI / 32);
+	// plotFunction(context, thetaBounds, phiBounds, &isValidAngle, null);
+
 	// plotFunction(context, thetaBounds, phiBounds, &backBounce, null);
-	plotFunction(context, thetaBounds, phiBounds, &isValidAngle, null);
 	// plotFunction(context, thetaBounds, phiBounds, &backBounceNormal, null);
 }
 

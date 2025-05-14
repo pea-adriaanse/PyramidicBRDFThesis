@@ -3,6 +3,7 @@ module distribution;
 import std.conv : to;
 import std.random : uniform01;
 import std.stdio : File;
+import std.string: stripRight;
 
 interface Distribution {
 	float sample();
@@ -28,7 +29,8 @@ class HistogramDistribution : Distribution {
 	this(string file, float rangeSize) {
 		this.rangeSize = rangeSize;
 		foreach (char[] l; File(file).byLine()) {
-			this.cdf ~= l.to!float;
+			char[] lCorrect = stripRight(l);
+			this.cdf ~= lCorrect.to!float;
 		}
 		this.bucketSize = rangeSize / cdf.length;
 	}

@@ -32,7 +32,7 @@ enum float width = 40; // used
 enum _density = 0.6; //? per micron²
 
 uint simpleSphereLatCount = 16;
-uint simpleSphereLongCount = 10;
+uint simpleSphereLongCount = 3;//10;
 uint fibonacciSphereCount = 400;
 
 uint sphereSampleCount; // determined given sampler used ^
@@ -58,6 +58,8 @@ void main(string[] args) {
 		return experiment();
 	case "generate":
 		return generate();
+	case "generateVar":
+		return generateVar();
 	case "test":
 		return test_shadowing();
 	case "measure":
@@ -325,6 +327,22 @@ Landscape generate_land() {
 	return land;
 }
 
+void generateVar(){
+	write("landscape size (um): ");
+	float size = readln().strip().to!float;
+	enforce(size > 0, "Size cannot be negative.");
+
+	write("output file: ");
+	string fileName = readln().strip();
+	enforce(isValidFilename(fileName), "File name invalid.");
+
+	string heightsFile = "heightCumulative.csv"; // Source: "Opto-electrical modelling and optimization study of a novel IBC c-Si solar cellOpto-electrical modelling and optimization study of a novel IBC c-Si solar cell"
+	Distribution heightDistribution = new HistogramDistribution(heightsFile, maxVarHeight);
+	Landscape land = Landscape(size, _density, _slope, heightDistribution); // 20 micron, 0.6 per micron²
+	land.approxHeight = maxVarHeight;
+	land.save(fileName);
+}
+
 void generate(bool splitTriangles = true)() {
 	write("landscape size (um): ");
 	float size = readln().strip().to!float;
@@ -469,13 +487,17 @@ void experiment() {
 	settingsFile.writeln("simpleSphereLongCount,", simpleSphereLongCount);
 	settingsFile.writeln("simpleSphereLatCount,", simpleSphereLatCount);
 
-	measureLand(landConstant, "results/land.csv");
+	// measureLand(landConstant, "results/land.csv");
+	measureLand(landConstant, "results/landVar.csv");
 	// measure(land, sphereSamples, maxVarHeight, "hits.csv");
+	measure(land, sphereSampler, maxVarHeight, heightBins, "results/hitsVar.csv",
+		"results/hitsHeightVar.csv", "results/heightDistributionVar.csv",
+		"results/hitsVarByHeight.csv");
 	measure(landConstant, sphereSampler, maxConstHeight, heightBins, "results/hitsConstant.csv",
 		"results/hitsHeightConstant.csv", "results/heightDistributionConstant.csv",
 		"results/hitsConstantByHeight.csv");
 
-	// measureHighPoint(landConstant, sphereSamples, "results/highPointSampling.csv");
+	// measureHighPoint(landConstant, sphereSampler.data, "results/highPointSampling.csv");
 }
 
 void measureHighPoint(const Landscape land, const Vec!3[] sphereSamples, string fileName) {

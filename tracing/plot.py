@@ -94,7 +94,7 @@ plt.show()
 shadow_lyanne = readData("results/shadow_lyanne.csv")
 shadow_lyanne_theta = [float(x) for x in shadow_lyanne["theta"]]
 shadow_lyanne_shadow = [float(x) for x in shadow_lyanne["shadow"]]
-plt.plot(shadow_lyanne_theta, shadow_lyanne_shadow, "r-", label="lyanne")
+# plt.plot(shadow_lyanne_theta, shadow_lyanne_shadow, "r-", label="lyanne")
 
 # Plot shadowing function
 sphereSamples = readDataPoint("results/sphereSamples.csv")
@@ -102,26 +102,43 @@ sphereSamples = readDataPoint("results/sphereSamples.csv")
 # orgs = [sphereSamples[int(i)] for i in hitsData["org_id"]]
 hitsConstData = readData("results/hitsConstant.csv")
 hitsConst = [int(x)/sampleCount for x in hitsConstData["hits"]]
+hitsVarData = readData("results/hitsVar.csv")
+hitsVar = [int(x)/sampleCount for x in hitsVarData["hits"]]
 orgs = [sphereSamples[int(i)] for i in hitsConstData["org_id"]] # Should be the same
 
 heights = [int(x) for x in readData("results/hitsHeightConstant.csv")["occurrance"]]
+heightsVar = [int(x) for x in readData("results/hitsHeightVar.csv")["occurrance"]]
 
 colormap = plt.cm.cool
 norm=plt.Normalize(vmin=0,vmax=math.pi/2)
 if(sphereSampler == "simple" or sphereSampler == "simple_quad"):
 	orghits_by_phi = {}
+	orghits_by_phiVar = {}
 	for i,org in enumerate(orgs):
 		if org.phi not in orghits_by_phi:
 			orghits_by_phi[org.phi] = ([],[], [])
 		orghits_by_phi[org.phi][0].append(math.pi/2 - org.lat) # change to altitude
-		# orghits_by_phi[org.phi][1].append(hits[i])
+		orghits_by_phi[org.phi][1].append(hitsVar[i])
 		orghits_by_phi[org.phi][2].append(hitsConst[i])
 
+	i = 0
 	for phi,orghits in orghits_by_phi.items():
-		# plt.plot(orghits[0], orghits[1], "-") # variable height
-		plt.plot(orghits[0], orghits[2], "--",color=colormap(norm(phi)), label="phi="+str(phi)) # constant height
-	plt.legend()
+		if(i >= 2):
+			break # Plot only 0 and pi/4
+		i = i + 1
+		if(i==1):
+			phiName = "0"
+			color = "r"
+		else:
+			phiName="\pi/4"
+			color = "b"
+		# print([x > 1 for x in orghits[2]])
+		# print([x > 1 for x in orghits[1]])
+		plt.plot(orghits[0], orghits[1], color+"-", label="$G_{MV}(\phi="+phiName+")$", zorder=2, linewidth=1) # variable height
+		plt.plot(orghits[0], orghits[2], color+"--", label="$G_{MC}(\phi="+phiName+")$", zorder=1, dashes=(4,4), linewidth=3) # constant height
+		# plt.plot(orghits[0], orghits[2], "--",color=colormap(norm(phi)), label="phi="+str(phi)) # constant height
 	# plt.legend(["variable height", "constant height"])
+	plt.legend()
 
 else:
 	lats = [x.lat for x in orgs]
@@ -131,8 +148,8 @@ else:
 
 plt.axvline((90-54.7) * math.pi / 180)
 plt.xscale("linear")
-plt.title("Shadowing Function")
-plt.xlabel("latitude")
+# plt.title("Shadowing Function")
+plt.xlabel("$\\theta$")
 plt.ylabel("visibility")
 plt.show()
 

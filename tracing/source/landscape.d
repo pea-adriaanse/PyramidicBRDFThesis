@@ -19,6 +19,7 @@ import std.parallelism : parallel;
 import std.path : isValidFilename;
 import std.random : uniform;
 import std.typecons : Nullable;
+import std.stdio: writeln;
 
 struct Landscape {
 	float width;
@@ -256,6 +257,8 @@ struct Landscape {
 				faces[index * shapeFaces.length + fi] = newFace;
 			}
 		}
+
+		writeln("Geometry generated");
 
 		static if (splitTriangles)
 			Ply.saveToFile(cast(immutable) vertices, cast(immutable) faces, cast(immutable) normals, fileName);
