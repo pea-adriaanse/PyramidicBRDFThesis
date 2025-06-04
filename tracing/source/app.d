@@ -32,7 +32,7 @@ enum float width = 40; // used
 enum _density = 0.6; //? per micron²
 
 uint simpleSphereLatCount = 16;
-uint simpleSphereLongCount = 3;//10;
+uint simpleSphereLongCount = 3; //10;
 uint fibonacciSphereCount = 400;
 
 uint sphereSampleCount; // determined given sampler used ^
@@ -69,11 +69,12 @@ void main(string[] args) {
 	}
 }
 
-uint pow4(uint exponent) {
+uint pow4(uint exponent) pure {
 	return 1u << (2u * exponent);
 }
 
-uint pow4sum(uint exponent) {
+///See_Also: reflectIDCount (identical)
+uint pow4sum(uint exponent) pure {
 	return (4 * (pow4(exponent) - 1)) / 3; // Modified geometric series
 }
 
@@ -327,7 +328,7 @@ Landscape generate_land() {
 	return land;
 }
 
-void generateVar(){
+void generateVar() {
 	write("landscape size (um): ");
 	float size = readln().strip().to!float;
 	enforce(size > 0, "Size cannot be negative.");

@@ -1,0 +1,9 @@
+{
+	"fileVersion": 1,
+	"versions": {
+		"matplotlib-d": {"path":"../matplotlib-d/"},
+		"pyd": "0.14.5",
+		"tracing": {"path":"../tracing/"},
+		"vdmath": "1.0.1"
+	}
+}

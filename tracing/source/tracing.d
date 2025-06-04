@@ -236,7 +236,7 @@ Hit tracePlane(Vec!3 point, Vec!3 normal, Ray ray) {
 /// Params:
 ///   dir = normalized in direction (pointing into the surface)
 ///   normal = normalized normal
-/// Returns: normalized reflected direction
+/// Returns: reflected direction
 Vec!3 reflect(Vec!3 dir, Vec!3 normal) {
 	return dir - (normal * (2 * dir.dot(normal)));
 }
@@ -248,14 +248,14 @@ unittest {
 	reflected.assertAlmostEquals(Vec!3(0.5, 0, 0.5).normalize());
 }
 
-auto reflectRecurse(bool trackHistory = false)(Landscape land, Ray ray, uint reflectCount) {
+auto reflectRecurse(bool trackHistory = false)(const Landscape land, Ray ray, uint reflectCount) {
 	uint reflectID = 0;
 	static if (trackHistory)
 		uint[] history;
 	foreach (r; 0 .. reflectCount + 1) { //TODO: prefer not to use +1
 		Hit hit = traceLand(land, ray);
 		if (!hit.hit) {
-			assert(r > 0, "Initial ray missed landscape! " ~ ray.to!string);
+			assert(r > 0, "Initial ray missed landscape! " ~ ray.toString());
 			static if (trackHistory)
 				return ReflectData!true(true, ray, r, reflectID, history);
 			else
@@ -287,6 +287,21 @@ unittest {
 	assert(reflectData.reflectCount == 2);
 	assert(reflectData.reflectID == 4 + 2);
 	reflectData.outRay.dir.assertAlmostEquals(Vec!3(0, 0, 1));
+}
+
+///See_Also: pow4sum (identical)
+uint reflectIDCount(uint pathLength) pure {
+	uint count = 0;
+	foreach (i; 1 .. pathLength + 1)
+		count += 4 ^^ i;
+	return count;
+}
+
+unittest {
+	assert(reflectIDCount(0) == 0);
+	assert(reflectIDCount(1) == 4);
+	assert(reflectIDCount(2) == 20);
+	assert(reflectIDCount(3) == 84);
 }
 
 string reflectIDToString(uint reflectID) {

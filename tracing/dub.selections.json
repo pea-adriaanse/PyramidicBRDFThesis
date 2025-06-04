@@ -6,6 +6,7 @@
 		"bindbc-opengl": "0.13.0",
 		"gamut": "2.3.3",
 		"intel-intrinsics": "1.11.18",
-		"vdmath": "1.0.0"
+		"matplotlib-d": {"path":"../matplotlib-d/"},
+		"vdmath": "1.0.1"
 	}
 }

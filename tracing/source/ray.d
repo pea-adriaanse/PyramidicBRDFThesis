@@ -5,6 +5,12 @@ struct Ray {
 	Vec!3 org;
 	Vec!3 dir;
 	uint excludePeak = uint.max;
+
+	string toString() {
+		import std.conv : to;
+
+		return "Ray(org: " ~ org.toString() ~ ", dir: " ~ dir.toString() ~ ", excludePeak: " ~ excludePeak.to!string ~ ")";
+	}
 }
 
 struct Hit {
