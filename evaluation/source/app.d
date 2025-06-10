@@ -265,6 +265,6 @@ Landscape createLandscape() {
 	immutable uint binCount = 25;
 	immutable float width = 500;
 	Landscape landscape = Landscape(width, density, slope);
-	landscape.createBins(binCount);
+	landscape.createBins(binCount, 0, -landscape.approxHeight, true);
 	return landscape;
 }

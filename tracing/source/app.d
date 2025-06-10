@@ -115,7 +115,7 @@ void measureBackBounceProb(string[] args) {
 	Vec!3 p = Vec!3(x, y, z);
 	float width = 2000;
 	Landscape land = Landscape(width, density, slope);
-	land.createBins(25);
+	land.createBins(25, 0, -land.approxHeight, true);
 	uint samples = 500;
 
 	Vec!3[] sampleStart;
@@ -179,7 +179,7 @@ void measureReflectPathDist(string[] args) {
 		land = Landscape(width, _density);
 	// land = Landscape(width, [Vec!3(0)], PI_4);
 	// land.save("reflectDist.ply");
-	land.createBins(binCount);
+	land.createBins(binCount, 0, -land.approxHeight, true);
 
 	Vec!3 wo;
 	uint sampleCount, reflectCount;
@@ -302,7 +302,7 @@ void measure_shadowing() {
 		Vec!3 dir = (target - cam).normalize();
 		Ray ray = Ray(cam, dir);
 
-		ReflectData!false reflectData = reflectRecurse(land, ray, reflectCount);
+		ReflectData!false reflectData = reflectRecurse!false(land, ray, reflectCount);
 		data[reflectData.reflectID] += reflectData.exits;
 		// csv.addEntry(reflectData.exits, reflectData.reflectCount, reflectData.reflectID,
 		// 	reflectData.outDir.x, reflectData.outDir.y, reflectData.outDir.z);

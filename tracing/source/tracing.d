@@ -13,8 +13,12 @@ import std.math.traits : signbit;
 import std.parallelism : parallel;
 import std.typecons : Nullable;
 
-bool findNextBin(const Landscape land, ref Ray ray, ref Nullable!(Vec!(2, uint)) currentBin) {
+ulong GLOBAL_TEST_COUNTER = 0;
+
+bool findNextBin(const Landscape land, ref Ray ray, ref Nullable!(Vec!(2, uint)) currentBin, bool* belowBoundsFlag) {
 	assert(land.useBins);
+	GLOBAL_TEST_COUNTER += 1;
+	ulong TEST_TEMP = GLOBAL_TEST_COUNTER;
 	if (currentBin.isNull) {
 		foreach (ubyte axis; 0 .. 3) {
 			bool tooMuch = ray.org[axis] > land.maxBound[axis];
@@ -34,7 +38,7 @@ bool findNextBin(const Landscape land, ref Ray ray, ref Nullable!(Vec!(2, uint))
 			} else
 				continue;
 
-			Hit hit = tracePlane(pointOnPlane, dir, ray);
+			Hit hit = tracePlane!(true)(pointOnPlane, dir, ray);
 			assert(hit.hit);
 			ray.org = hit.pos;
 		}
@@ -42,6 +46,7 @@ bool findNextBin(const Landscape land, ref Ray ray, ref Nullable!(Vec!(2, uint))
 		return !currentBin.isNull;
 	} else {
 		Hit[2] hits;
+		float TEST_Z = ray.org.z;
 		foreach (ubyte axis; 0 .. 2) { // Calculate distances to potential next bins walls
 			if (ray.dir[axis] == 0) {
 				hits[axis] = Hit();
@@ -51,28 +56,38 @@ bool findNextBin(const Landscape land, ref Ray ray, ref Nullable!(Vec!(2, uint))
 				Vec!3 point = land.minBound;
 				point[axis] += offset;
 				Vec!3 normal = Vec!3(0);
-				normal[axis] = (ray.dir[axis] > 0) ? -1 : 1;
+				normal[axis] = (ray.dir[axis] > 0) ? -1 : 1; // technically not necessary without backface culling
+				ulong TEST_VAR = ANOTHER_DEBUG_COUNTER;
 				hits[axis] = tracePlane(point, normal, ray);
 				assert(hits[axis].hit);
 				assert(hits[axis].t > 0);
 			}
 		}
 		// Choose closest bin
+		Vec!3 newRayOrg;
 		if (hits[0].t == hits[1].t) { // perfect slanted progression, should (almost) never happen
-			if (hits[0].t == float.infinity)
+			if (hits[0].t == float.infinity) { // Vertical
+				*belowBoundsFlag = ray.dir.z < 0;
 				return false;
+			}
 			currentBin.get()[0] += ((ray.dir[0] > 0) ? 1 : -1);
 			currentBin.get()[1] += ((ray.dir[1] > 0) ? 1 : -1);
-			ray.org = hits[0].pos;
+			newRayOrg = hits[0].pos;
 		} else {
 			ubyte minAxis = (hits[1].t > hits[0].t) ? 0 : 1;
 			currentBin.get()[minAxis] += (ray.dir[minAxis] > 0) ? 1 : -1; // increment/decrement bin
-			ray.org = hits[minAxis].pos;
+			newRayOrg = hits[minAxis].pos;
 		}
 		// Check if next bin exits bounds
 		// Note unsigned int underflow (< 0) wraps around to > binCount.
-		if (currentBin.get()[0] >= land.binCount || currentBin.get()[1] >= land.binCount)
+		bool escapeAboveBounds = newRayOrg.z > land.maxBound.z;
+		bool escapeBelowBounds = newRayOrg.z < land.minBound.z;
+		*belowBoundsFlag = escapeBelowBounds;
+		bool escapeOutsidePerimeter = currentBin.get()[0] >= land.binCount || currentBin.get()[1] >= land
+			.binCount;
+		if (escapeAboveBounds || escapeBelowBounds || escapeOutsidePerimeter)
 			return false;
+		ray.org = newRayOrg; // only update if valid
 		return true;
 	}
 }
@@ -121,25 +136,43 @@ unittest {
 	assert(ray.org.almostEquals(stop));
 }
 
+ulong ANOTHER_DEBUG_COUNTER = 0;
 Hit traceLand(const Landscape land, Ray ray) {
 	if (!land.useBins) {
 		return tracePeaks(land.shape, land.peaks, ray);
 	} else {
 		Nullable!(Vec!(2, uint)) currentBin;
-		while (findNextBin(land, ray, currentBin)) {
+		bool escapeBelowBound;
+		while (findNextBin(land, ray, currentBin, &escapeBelowBound)) {
+			ANOTHER_DEBUG_COUNTER += 1;
+			ulong TEST_VAR = ANOTHER_DEBUG_COUNTER;
 			const Vec!3[] peaks = land.getBin(currentBin.get().x, currentBin.get().y);
-			Hit hit = tracePeaks(land.shape, peaks, ray);
+			Hit hit = tracePeaks(land.shape, peaks, ray); // not !false as findNextBin only guarantees constant-height correctness.
 			if (hit.hit)
 				return hit;
 		}
-		return Hit();
+		// Hit nothing inside bounds
+		if (escapeBelowBound && land.ensureNoGap)
+			return tracePeaks(land.shape, land.peaks, ray);
+		else
+			return Hit();
 	}
+}
+
+unittest {
+	Vec!3 peak = Vec!3(1, 1, 1);
+	Landscape land = Landscape(10, [peak], degreesToRadians(45.0));
+	Vec!3 org = Vec!3(4, 1, 4);
+	Vec!3 dir = Vec!3(-1, 0, 0);
+	Ray ray = Ray(org, dir);
+	Hit hit = traceLand(land, ray);
+	assert(!hit.hit);
 }
 
 Hit tracePeaks(const ref PyramidShape shape, const Vec!3[] peaks, Ray ray) {
 	shared Hit minHit;
 	foreach (id, peak; parallel(peaks)) {
-		// foreach (id, peak; peaks) {
+	// foreach (id, peak; peaks) {
 		if (ray.excludePeak == id)
 			continue;
 		Hit hit = tracePeak(shape, peak, ray);
@@ -181,8 +214,10 @@ Hit traceFace(Vec!3 peak, Face face, uint faceID, Ray ray) {
 	Hit hit = tracePlane(peak, face.normal, ray);
 	if (!hit.hit)
 		return hit;
+
 	Vec!(3, double) P = (cast(Vec!(3, double)) hit.pos) - peak; // float error mitigation
 
+	// Note: Since a local P is used, following already implicitly checks hit.pos.z is correct (<=peak.z):
 	final switch (faceID) {
 	case 0:
 		hit.hit = P.x >= 0 && abs(P.y) <= abs(P.x);
@@ -216,7 +251,7 @@ unittest {
 	assert(!hit.hit);
 }
 
-Hit tracePlane(Vec!3 point, Vec!3 normal, Ray ray) {
+Hit tracePlane(bool plane_diff_hack = false)(Vec!3 point, Vec!3 normal, Ray ray) {
 	float distToPlane = (point - ray.org).dot(normal);
 	float slope = ray.dir.dot(normal);
 
@@ -229,6 +264,16 @@ Hit tracePlane(Vec!3 point, Vec!3 normal, Ray ray) {
 
 	float t = distToPlane / slope;
 	Vec!3 pos = ray.org + ray.dir * t;
+	static if (plane_diff_hack) {
+		// Floating error quickfix:
+		float diff = (pos - point).dot(normal);
+		if (diff != 0) {
+			Vec!3 pos_fixed = pos - (normal * diff);
+			float diff_fixed = (pos_fixed - point).dot(normal);
+			assert(abs(diff_fixed) <= abs(diff));
+			pos = pos_fixed;
+		}
+	}
 	return Hit(true, pos, t);
 }
 
@@ -248,10 +293,14 @@ unittest {
 	reflected.assertAlmostEquals(Vec!3(0.5, 0, 0.5).normalize());
 }
 
-auto reflectRecurse(bool trackHistory = false)(const Landscape land, Ray ray, uint reflectCount) {
+uint DEBUG_COUNTER = 0;
+auto reflectRecurse(bool trackHistory = false)(
+	const Landscape land, Ray ray, uint reflectCount) {
 	uint reflectID = 0;
 	static if (trackHistory)
 		uint[] history;
+	DEBUG_COUNTER += 1;
+	uint TEMP = DEBUG_COUNTER;
 	foreach (r; 0 .. reflectCount + 1) { //TODO: prefer not to use +1
 		Hit hit = traceLand(land, ray);
 		if (!hit.hit) {
@@ -282,7 +331,7 @@ unittest {
 	Vec!3 org = Vec!3(-1, 0, 2);
 	Vec!3 dir = Vec!3(0, 0, -1);
 	Ray ray = Ray(org, dir);
-	ReflectData reflectData = reflectRecurse(land, ray, 2);
+	ReflectData!false reflectData = reflectRecurse!false(land, ray, 2);
 	assert(reflectData.exits);
 	assert(reflectData.reflectCount == 2);
 	assert(reflectData.reflectID == 4 + 2);
@@ -359,7 +408,7 @@ unittest {
 unittest {
 	Landscape land = Landscape(20, [Vec!3(0, 0, 0), Vec!3(10, 0, 0)], PI_4);
 	Ray ray = Ray(Vec!3(1, 0, 1), Vec!3(0, 0, -1));
-	ReflectData reflect = reflectRecurse(land, ray, 2);
+	ReflectData!false reflect = reflectRecurse!false(land, ray, 2);
 	assert(reflect.exits);
 	assert(reflect.reflectCount == 2);
 	assert(reflect.outRay.dir.almostEquals(Vec!3(0, 0, 1)));
@@ -367,7 +416,7 @@ unittest {
 	assert(reflect.reflectID == reflectStringToID("EW"));
 
 	Ray rayBack = Ray(Vec!3(9, 0, 1), Vec!3(0, 0, -1));
-	ReflectData reflectBack = reflectRecurse(land, rayBack, 2);
+	ReflectData!false reflectBack = reflectRecurse!false(land, rayBack, 2);
 	assert(reflectBack.exits);
 	assert(reflectBack.reflectCount == 2);
 	assert(reflectBack.outRay.dir.almostEquals(Vec!3(0, 0, 1)));

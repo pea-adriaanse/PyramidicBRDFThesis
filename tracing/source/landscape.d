@@ -19,7 +19,7 @@ import std.parallelism : parallel;
 import std.path : isValidFilename;
 import std.random : uniform;
 import std.typecons : Nullable;
-import std.stdio: writeln;
+import std.stdio : writeln;
 
 struct Landscape {
 	float width;
@@ -31,6 +31,7 @@ struct Landscape {
 	Vec!3[] peaks;
 
 	bool useBins = false;
+	bool ensureNoGap;
 	uint binCount;
 	Vec!3[][] bins;
 	Vec!2 binWidth;
@@ -93,9 +94,16 @@ struct Landscape {
 	/// Roof at 0, with simple width/2 bounds.
 	/// Params:
 	///   binCount = Number of bins along x & y axes.
-	void createBins(uint binCount) {
-		Vec!3 minBound = Vec!3(-width / 2, -width / 2, -approxHeight);
-		Vec!3 maxBound = Vec!3(width / 2, width / 2, 0);
+	///   top = Landscape's upper-bound
+	///   bottom = Landscape's lower-bound
+	///   ensureNoGap = Wether to default to non-binned tracing when depth reaches below bottom.
+	void createBins(uint binCount, float top, float bottom, bool ensureNoGap) {
+		assert(top > bottom);
+		assert(top < float.infinity);
+		assert(bottom > -float.infinity);
+		this.ensureNoGap = ensureNoGap;
+		Vec!3 minBound = Vec!3(-width / 2, -width / 2, bottom);
+		Vec!3 maxBound = Vec!3(width / 2, width / 2, top);
 		createBins(minBound, maxBound, binCount);
 	}
 
