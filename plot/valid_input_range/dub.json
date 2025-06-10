@@ -11,6 +11,6 @@
 	"license": "proprietary",
 	"name": "valid_input_range",
 	"subConfigurations": {
-		"pyd": "python313"
+		"pyd": "python310"
 	}
 }
