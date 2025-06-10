@@ -12,17 +12,18 @@ import ray;
 import tracing;
 import vdmath;
 import vdmath.misc;
+import backscattering;
+
 import pyd.pyd;
 import pyd.embedded;
 import pyd.extra;
-
-immutable python_script = import("plot.py");
 
 immutable uint pathLength = 3;
 immutable uint meshSampleCount = 1024;
 immutable bool useShadowingPaul = true;
 immutable uint resolution = 64;
 immutable bool unfrequentProgressBar = true; // slightly faster
+immutable bool backScatteringCorrection = true;
 
 struct Histogram(uint pathLength = pathLength) {
 	static immutable uint histogramEntryCount = reflectIDCount(pathLength);
@@ -49,12 +50,34 @@ struct Histogram(uint pathLength = pathLength) {
 	float exitProb;
 }
 
-void main() {
-	SysTime startTime = Clock.currTime();
+struct EvaluationResults {
+	float[resolution + 1][resolution] errors; // abs? average?
+	float[resolution + 1][resolution] exitProbBRDF;
+	float[resolution + 1][resolution] exitProbMesh;
+	float[resolution + 1] thetas;
+	float[resolution] phis;
 
+	void save(string dir) {
+		File(dir ~ "thetas.txt", "w").writeln(thetas);
+		File(dir ~ "phis.txt", "w").writeln(phis);
+		File(dir ~ "errors.txt", "w").writeln(errors);
+		File(dir ~ "exitProbBRDF.txt", "w").writeln(exitProbBRDF);
+		File(dir ~ "exitProbMesh.txt", "w").writeln(exitProbMesh);
+	}
+}
+
+void main() {
 	Landscape landscape = createLandscape();
 	landscape.save("landscape.ply");
 
+	EvaluationResults* results = runEvaluation(landscape);
+	results.save("./results/");
+
+	plotEvaluation(results);
+}
+
+EvaluationResults* runEvaluation(const Landscape landscape) {
+	SysTime startTime = Clock.currTime();
 	immutable uint totalSamples = resolution * (resolution + 1);
 
 	float[resolution + 1][resolution] errors; // abs? average?
@@ -78,7 +101,9 @@ void main() {
 			wo.z = max(cos(theta), 0); // turns out cos(PI_2) returns -2.71051e-20L ...
 			wo = wo.normalize(); // paranoia?
 
-			Histogram!pathLength brdfHistogram = calculateBRDF!pathLength(wo, landscape.shape);
+			Histogram!pathLength brdfHistogram =
+				calculateBRDF!(pathLength, backScatteringCorrection)(wo, theta, phi, landscape
+						.shape);
 			Histogram!pathLength meshHistogram = calculateMesh!pathLength(wo, landscape);
 			exitProbBRDF[phi_i][theta_i] = brdfHistogram.exitProb;
 			exitProbMesh[phi_i][theta_i] = meshHistogram.exitProb;
@@ -96,7 +121,6 @@ void main() {
 
 			static if (!unfrequentProgressBar)
 				write("\rProgress: ", sample_i, "/", totalSamples, "\t\t\t\t\r");
-			// Do Backscattering Correction
 		}
 		static if (unfrequentProgressBar)
 			write("\rProgress: ", sample_i, "/", totalSamples, "\t\t\t\t\r");
@@ -104,22 +128,30 @@ void main() {
 	writeln('\a');
 
 	Duration duration = Clock.currTime() - startTime;
-	writeln("Finished after Duration: ", duration);
+	writeln("Finished Evaluation after Duration: ", duration);
 
-	File("thetas.txt", "w").writeln(thetas);
-	File("phis.txt", "w").writeln(phis);
-	File("errors.txt", "w").writeln(errors);
-	File("exitProbBRDF.txt", "w").writeln(exitProbBRDF);
-	File("exitProbMesh.txt", "w").writeln(exitProbMesh);
+	EvaluationResults* results = new EvaluationResults;
+	results.errors = errors;
+	results.exitProbBRDF = exitProbBRDF;
+	results.exitProbMesh = exitProbMesh;
+	results.thetas = thetas;
+	results.phis = phis;
+	return results;
+}
 
-	// pyd plot
-	py_init();
+void plotEvaluation(EvaluationResults* results) {
+	static immutable python_script = import("plot.py");
+	static bool initialized = false;
+	if (!initialized) {
+		py_init();
+		initialized = true;
+	}
 	InterpContext context = new InterpContext();
-	context.thetas_x = d_to_python_numpy_ndarray(thetas);
-	context.phis_y = d_to_python_numpy_ndarray(phis);
-	context.errors_z = d_to_python_numpy_ndarray(errors);
-	context.exitProbBRDF_z = d_to_python_numpy_ndarray(exitProbBRDF);
-	context.exitProbMesh_z = d_to_python_numpy_ndarray(exitProbMesh);
+	context.thetas_x = d_to_python_numpy_ndarray(results.thetas);
+	context.phis_y = d_to_python_numpy_ndarray(results.phis);
+	context.errors_z = d_to_python_numpy_ndarray(results.errors);
+	context.exitProbBRDF_z = d_to_python_numpy_ndarray(results.exitProbBRDF);
+	context.exitProbMesh_z = d_to_python_numpy_ndarray(results.exitProbMesh);
 	context.py_stmts(python_script);
 }
 
@@ -131,7 +163,7 @@ float absErrorSum(uint pathLength)(Histogram!pathLength calculated, Histogram!pa
 	return errorSum;
 }
 
-auto calculateBRDF(uint pathLength)(Vec!3 wo, PyramidShape pyramidShape)
+auto calculateBRDF(uint pathLength, bool backScatteringCorrection)(Vec!3 wo, float theta, float phi, PyramidShape pyramidShape)
 		if (pathLength >= 1) {
 	immutable uint pathCount = reflectIDCount(pathLength);
 	float[pathCount] occurProbs;
@@ -188,6 +220,23 @@ auto calculateBRDF(uint pathLength)(Vec!3 wo, PyramidShape pyramidShape)
 
 			exitProbs[pathID] = exitProb;
 			occurProbs[pathID] = occurProb;
+		}
+	}
+
+	if (backScatteringCorrection) {
+		string[4] dirs2 = ["EW", "NS", "WE", "SN"];
+		string[4] dirs3 = ["EWE", "NSN", "WEW", "SNS"];
+		uint[4] dirs2IDs;
+		uint[4] dirs3IDs;
+		double[4] deltaPhi = [0, -PI_2, PI, PI_2];
+		foreach (i; 0 .. 4) {
+			dirs2IDs[i] = reflectStringToID(dirs2[i]);
+			dirs3IDs[i] = reflectStringToID(dirs3[i]);
+
+			double backScatteringProb = backBounce(theta, phi + deltaPhi[i]);
+			double backBounceProb = backScatteringProb * exitProbs[dirs2IDs[i]];
+			exitProbs[dirs2IDs[i]] -= cast(float) backBounceProb;
+			exitProbs[dirs3IDs[i]] += cast(float) backBounceProb;
 		}
 	}
 

@@ -7,6 +7,9 @@
 		"pyd": "~>0.14.5",
 		"tracing": {
 			"path": "../tracing/"
+		},
+		"valid_input_range": {
+			"path": "../plot/valid_input_range/"
 		}
 	},
 	"description": "Evaluation of BRDF",
