@@ -14,5 +14,14 @@ ax.plot_surface(X,Y,errors_z) # rcount
 ax.set_xlabel("theta")
 ax.set_ylabel("phi")
 # ax.set(xlim=xBounds[0:2],ylim=yBounds[0:2])
+plt.show()
 
+ax.plot_surface(X,Y,exitProbBRDF_z)
+ax.set_xlabel("theta")
+ax.set_ylabel("phi")
+plt.show()
+
+ax.plot_surface(X,Y,exitProbMesh_z)
+ax.set_xlabel("theta")
+ax.set_ylabel("phi")
 plt.show()

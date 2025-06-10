@@ -3,6 +3,8 @@ import std.conv : to;
 import std.math;
 import std.algorithm : max, clamp;
 import std.stdio;
+import std.datetime;
+import std.random;
 
 import landscape;
 import pyramid_shape;
@@ -20,6 +22,7 @@ immutable uint pathLength = 3;
 immutable uint meshSampleCount = 1024;
 immutable bool useShadowingPaul = true;
 immutable uint resolution = 64;
+immutable bool unfrequentProgressBar = true; // slightly faster
 
 struct Histogram(uint pathLength = pathLength) {
 	static immutable uint histogramEntryCount = reflectIDCount(pathLength);
@@ -47,11 +50,14 @@ struct Histogram(uint pathLength = pathLength) {
 }
 
 void main() {
+	SysTime startTime = Clock.currTime();
+
 	Landscape landscape = createLandscape();
+	landscape.save("landscape.ply");
 
 	immutable uint totalSamples = resolution * (resolution + 1);
 
-	float[resolution + 1][resolution] error; // abs? average?
+	float[resolution + 1][resolution] errors; // abs? average?
 	float[resolution + 1][resolution] exitProbBRDF;
 	float[resolution + 1][resolution] exitProbMesh;
 	float[resolution + 1] thetas;
@@ -76,24 +82,42 @@ void main() {
 			Histogram!pathLength meshHistogram = calculateMesh!pathLength(wo, landscape);
 			exitProbBRDF[phi_i][theta_i] = brdfHistogram.exitProb;
 			exitProbMesh[phi_i][theta_i] = meshHistogram.exitProb;
-			error[phi_i][theta_i] = absErrorSum(brdfHistogram, meshHistogram);
+			float error = absErrorSum(brdfHistogram, meshHistogram);
+			errors[phi_i][theta_i] = error;
+			debug if (error > 1) {
+				writeln("theta: ", theta);
+				writeln("phi: ", phi);
+				writeln("wo: ", wo.toString());
+				writeln("brdf: ", brdfHistogram.exitPathProb);
+				writeln("mesh: ", meshHistogram.exitPathProb);
+			}
+
 			sample_i += 1;
-			write("\rProgress: ", sample_i, "/", totalSamples, "\t\t\t\t\r");
-			
+
+			static if (!unfrequentProgressBar)
+				write("\rProgress: ", sample_i, "/", totalSamples, "\t\t\t\t\r");
 			// Do Backscattering Correction
 		}
+		static if (unfrequentProgressBar)
+			write("\rProgress: ", sample_i, "/", totalSamples, "\t\t\t\t\r");
 	}
-	writeln();
+	writeln('\a');
 
-	writeln("Error:\n",error);
+	Duration duration = Clock.currTime() - startTime;
+	writeln("Finished after Duration: ", duration);
 
+	File("thetas.txt", "w").writeln(thetas);
+	File("phis.txt", "w").writeln(phis);
+	File("errors.txt", "w").writeln(errors);
+	File("exitProbBRDF.txt", "w").writeln(exitProbBRDF);
+	File("exitProbMesh.txt", "w").writeln(exitProbMesh);
 
 	// pyd plot
 	py_init();
 	InterpContext context = new InterpContext();
 	context.thetas_x = d_to_python_numpy_ndarray(thetas);
 	context.phis_y = d_to_python_numpy_ndarray(phis);
-	context.errors_z = d_to_python_numpy_ndarray(error);
+	context.errors_z = d_to_python_numpy_ndarray(errors);
 	context.exitProbBRDF_z = d_to_python_numpy_ndarray(exitProbBRDF);
 	context.exitProbMesh_z = d_to_python_numpy_ndarray(exitProbMesh);
 	context.py_stmts(python_script);
@@ -144,14 +168,8 @@ auto calculateBRDF(uint pathLength)(Vec!3 wo, PyramidShape pyramidShape)
 			cosSum += cos;
 		}
 		if (cosSum <= 0) {
-			string groupIDStr = groupID.to!string();
-			string groupPathStr = reflectIDToString(groupID);
-			string groupWoStr = groupWo.toString();
-			string droppedThroughputStr = parentProb.to!string();
-			stderr.writeln("Dropped invalid throughput from parent (likely due to floating point error):\n\tgroupID: " ~ groupIDStr
-					~ "\n\tgroupPath: " ~ groupPathStr
-					~ "\n\tgroupWo:" ~ groupWoStr
-					~ "\n\tthroughput: " ~ droppedThroughputStr); // problem with shadowing function! (or floating point error)
+			stderr.writeln("Dropped invalid throughput from parent (likely due to floating point error):\n\tgroupID: ",
+				groupID, "\n\tgroupPath: ", reflectIDToString(groupID), "\n\tgroupWo:", groupWo.toString(), "\n\tthroughput: ", parentProb); // problem with shadowing function! (or floating point error)
 			goto non_occurring_group; // There is no clear solution. Options include offsetting throughput to parent or dropping it (as done here).
 		}
 		foreach (face; 0 .. 4) {
