@@ -121,6 +121,8 @@ if(sphereSampler == "simple" or sphereSampler == "simple_quad"):
 		orghits_by_phi[org.phi][1].append(hitsVar[i])
 		orghits_by_phi[org.phi][2].append(hitsConst[i])
 
+	variableFirst = []
+	variableSecond = []
 	i = 0
 	for phi,orghits in orghits_by_phi.items():
 		if(i >= 2):
@@ -129,13 +131,17 @@ if(sphereSampler == "simple" or sphereSampler == "simple_quad"):
 		if(i==1):
 			phiName = "0"
 			color = "r"
+			variableFirst = np.array(orghits[1]) # Save for comparison with next
+			variableSecond = np.array(orghits[2])
 		else:
 			phiName="\pi/4"
 			color = "b"
+			print( np.abs(np.array(orghits[1]) - variableFirst).max())
+			print( np.abs(np.array(orghits[2]) - variableSecond).max())
 		# print([x > 1 for x in orghits[2]])
 		# print([x > 1 for x in orghits[1]])
-		plt.plot(orghits[0], orghits[1], color+"-", label="$G_{MV}(\phi="+phiName+")$", zorder=2, linewidth=1) # variable height
-		plt.plot(orghits[0], orghits[2], color+"--", label="$G_{MC}(\phi="+phiName+")$", zorder=1, dashes=(4,4), linewidth=3) # constant height
+		plt.plot(orghits[0], orghits[1], color+"-", label="$G_{1V}(\phi="+phiName+")$", zorder=2, linewidth=1) # variable height
+		plt.plot(orghits[0], orghits[2], color+"--", label="$G_{1C}(\phi="+phiName+")$", zorder=1, dashes=(4,4), linewidth=3) # constant height
 		# plt.plot(orghits[0], orghits[2], "--",color=colormap(norm(phi)), label="phi="+str(phi)) # constant height
 	# plt.legend(["variable height", "constant height"])
 	plt.legend()
@@ -149,8 +155,9 @@ else:
 plt.axvline((90-54.7) * math.pi / 180)
 plt.xscale("linear")
 # plt.title("Shadowing Function")
-plt.xlabel("$\\theta$")
+plt.xlabel("$\\theta\ [rad]$")
 plt.ylabel("visibility")
+plt.grid()
 plt.show()
 
 # Plot shadowing function by height

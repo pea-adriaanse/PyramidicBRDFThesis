@@ -11,6 +11,7 @@ import std.math.algebraic : abs;
 import std.math.constants : PI_4;
 import std.math.traits : signbit;
 import std.parallelism : parallel;
+import std.stdio : stderr;
 import std.typecons : Nullable;
 
 ulong GLOBAL_TEST_COUNTER = 0;
@@ -172,7 +173,7 @@ unittest {
 Hit tracePeaks(const ref PyramidShape shape, const Vec!3[] peaks, Ray ray) {
 	shared Hit minHit;
 	foreach (id, peak; parallel(peaks)) {
-	// foreach (id, peak; peaks) {
+		// foreach (id, peak; peaks) {
 		if (ray.excludePeak == id)
 			continue;
 		Hit hit = tracePeak(shape, peak, ray);
@@ -277,6 +278,16 @@ Hit tracePlane(bool plane_diff_hack = false)(Vec!3 point, Vec!3 normal, Ray ray)
 	return Hit(true, pos, t);
 }
 
+Vec!3 angleToVector(float theta, float phi) {
+	import std.math : sin, cos;
+
+	Vec!3 wo;
+	wo.x = sin(theta) * cos(phi);
+	wo.y = sin(theta) * sin(phi);
+	wo.z = cos(theta); // turns out cos(PI_2) returns -2.71051e-20L ...
+	return wo;
+}
+
 /// Reflects dir using the normal.
 /// Params:
 ///   dir = normalized in direction (pointing into the surface)
@@ -304,7 +315,11 @@ auto reflectRecurse(bool trackHistory = false)(
 	foreach (r; 0 .. reflectCount + 1) { //TODO: prefer not to use +1
 		Hit hit = traceLand(land, ray);
 		if (!hit.hit) {
-			assert(r > 0, "Initial ray missed landscape! " ~ ray.toString());
+			if (r == 0) {
+				string errorString = "Initial ray missed landscape! " ~ ray.toString();
+				// assert(0, errorString); // debug mode
+				stderr.writeln(errorString); // release mode
+			}
 			static if (trackHistory)
 				return ReflectData!true(true, ray, r, reflectID, history);
 			else
@@ -373,7 +388,7 @@ unittest {
 	assert(str2 == "SEW");
 }
 
-uint reflectStringToID(string path) {
+uint reflectStringToID(string path) pure {
 	uint id = 0;
 
 	ubyte faceID(char c) {

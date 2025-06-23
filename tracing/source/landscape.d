@@ -19,7 +19,7 @@ import std.parallelism : parallel;
 import std.path : isValidFilename;
 import std.random : uniform;
 import std.typecons : Nullable;
-import std.stdio : writeln;
+import std.stdio : write, writeln;
 
 struct Landscape {
 	float width;
@@ -191,7 +191,13 @@ struct Landscape {
 			sort!"a>b"(heights);
 
 		uint i = 0;
-		while (i < count) { // TODO: Prevent infinite loops
+		uint maxLoop = count ^^ 2;
+		uint loopCount = 0;
+		while (i < count) {
+			loopCount += 1; // Prevent infinite loops
+			assert(loopCount < maxLoop, "Max looping reached during peak generation.");
+			debug write("Generating ", i, "/", count, "\t\t\r");
+
 			Vec!3 newPeak;
 			newPeak[0] = uniform!"()"(-width / 2, width / 2);
 			newPeak[1] = uniform!"()"(-width / 2, width / 2);

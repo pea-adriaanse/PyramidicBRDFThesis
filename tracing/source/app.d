@@ -237,7 +237,9 @@ void measureReflectPathDist(string[] args) {
 		Ray ray = Ray(cam, dir);
 		ReflectData!true reflectData = reflectRecurse!true(land, ray, reflectCount);
 
-		if (!reflectData.exits) {
+		if (!reflectData.hitSurface()) // ignore in release mode
+			continue; // TODO: could invalidate & remove from sampleCount in final results
+		else if (!reflectData.exits) {
 			captureCount += 1;
 			continue;
 		} else {
@@ -304,6 +306,7 @@ void measure_shadowing() {
 
 		ReflectData!false reflectData = reflectRecurse!false(land, ray, reflectCount);
 		data[reflectData.reflectID] += reflectData.exits;
+		//TODO: no clue what to do when !reflectData.hitSurface() in release mode
 		// csv.addEntry(reflectData.exits, reflectData.reflectCount, reflectData.reflectID,
 		// 	reflectData.outDir.x, reflectData.outDir.y, reflectData.outDir.z);
 	}

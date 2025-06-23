@@ -28,4 +28,8 @@ struct ReflectData(bool trackHistory = false) {
 	uint reflectID; // gives what normals were hit. (E,N,W,S)=(0,1,2,3) tree id.
 	static if (trackHistory)
 		uint[] history;
+
+	bool hitSurface() {
+		return reflectCount > 0;
+	}
 }
