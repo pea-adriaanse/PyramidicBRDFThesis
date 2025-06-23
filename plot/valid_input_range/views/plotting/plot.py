@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 
 # FINAL CONTOOUR:
 # ax = plt.figure().add_subplot()
@@ -12,13 +13,32 @@ import matplotlib.pyplot as plt
 # plt.show()
 
 # PLOT 3D
-ax = plt.figure().add_subplot(projection='3d')
-ax.plot_surface(xs,ys,zs, rcount=len(xs), )
+fig = plt.figure()
+ax = fig.add_subplot(projection='3d')
+plot = ax.plot_surface(xs,ys,zs, rcount=len(xs), edgecolor='0.7', linewidth=0.1)#, cmap=mpl.colormaps["plasma"])
+# plot = ax.plot_surface(xs,ys,zs, rcount=len(xs), edgecolor='0.7', linewidth=0.1, cmap=mpl.colormaps["plasma"])
+# fig.colorbar(plot, shrink=0.8, pad=0.1)
 ax.set(xlim=xBounds[0:2],ylim=yBounds[0:2])
-ax.set_xlabel("$theta$")
-ax.set_ylabel("$phi$")
-ax.set_zlim(0, 1)
+ax.set_xlabel("$\\theta$")
+ax.set_ylabel("$\phi$")
+print(type(zLimitsAutomatic))
+print(zLimitsAutomatic)
+if not zLimitsAutomatic:
+	ax.set_zlim(zLimits)
+# ax.view_init(azim=ax.azim-75)
+# print(zs.max())
+# ax.set_zlim(0, 1)
+if len(savePlotPath)>0:
+	plt.savefig(savePlotPath,bbox_inches='tight')
 plt.show()
+
+# plt.figure()
+# # plt.contourf(xs, ys, zs)
+# plt.pcolor(xs,ys,zs, cmap=mpl.colormaps["plasma"])
+# plt.colorbar()
+# plt.xlabel("$theta$")
+# plt.ylabel("$phi$")
+# plt.show()
 
 # ax = plt.figure().add_subplot(projection='3d')
 # ax.plot_surface(xs,ys,zs, rcount=len(xs)/100, ccount=len(xs[0])/100)

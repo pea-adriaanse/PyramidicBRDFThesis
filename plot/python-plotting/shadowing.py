@@ -149,7 +149,7 @@ for phi,orghits in orghits_by_phi.items():
 	# print([x > 1 for x in orghits[2]])
 	# print([x > 1 for x in orghits[1]])
 	# plt.plot(orghits[0], orghits[1], "-", label="variable height $\phi$="+phiName, zorder=2, linewidth=1) # variable height
-	plt.plot(orghits[0], orghits[2], color+"--", label="$G_{MC}(\phi="+phiName+")$", zorder=1, dashes=(4,4), linewidth=3) # constant height
+	plt.plot(orghits[0], orghits[2], color+"--", label="$G_{1C}(\phi="+phiName+")$", zorder=1, dashes=(4,4), linewidth=3) # constant height
 	# plt.plot(orghits[0], orghits[2], "--",color=colormap(norm(phi)), label="phi="+str(phi)) # constant height
 # plt.legend(["variable height", "constant height"])
 plt.legend()
