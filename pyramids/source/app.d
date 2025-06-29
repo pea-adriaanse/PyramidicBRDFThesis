@@ -26,9 +26,9 @@ void main() {
 	enforce(loadGLFW() == GLFWSupport.glfw33, "Cant load GLFW_33");
 	glfwSetErrorCallback(&glfw_error_callback);
 	glfwInit();
-	// char[] t = File("../Lyanne/heightCumulative.csv").byLine().front;
+	// char[] t = File("../tracing/heightCumulative.csv").byLine().front;
 	// writeln(t);
-	string csvText = readText("../Lyanne/heightCumulative.csv");
+	string csvText = readText("../tracing/heightCumulative.csv");
 	float[] heightDist = array(csvReader!(float)(csvText).front);
 	const uint pyramidCount = cast(uint) ceil(density * length * length);
 	float[3][] peaks = genPeaks(heightDist, pyramidCount);
